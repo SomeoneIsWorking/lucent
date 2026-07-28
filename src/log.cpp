@@ -2,6 +2,7 @@
 
 #include "lucent/config.h"
 
+#include <atomic>
 #include <cstdio>
 #include <mutex>
 #include <string>
@@ -19,11 +20,42 @@ bool g_all_channels = false;
 bool g_channels_loaded = false;
 std::unordered_map<std::string, bool> g_channel_cache;
 
+// FAST PATH FOR THE OVERWHELMINGLY COMMON CASE: no channels enabled at all.
+//
+// channel_enabled() is called at EVERY debug() site, whether or not the channel is on, and it took
+// the mutex and constructed a std::string from the string_view before it could answer "no". A
+// consuming port measured it at 6.06% of total CPU with logging entirely switched OFF — an
+// unconditional cost paid by every caller for the privilege of not logging. That is the wrong shape
+// for a library whose whole premise is that a disabled channel is free.
+//
+// `g_any_enabled` is false whenever the channel set is loaded and empty. It is written only under
+// g_mutex and read without it, which is safe here: the read is a single relaxed atomic load, and a
+// reader that races a concurrent enable_channels() simply gets the old answer for one call — the same
+// outcome it would get by acquiring the lock a moment earlier. Nothing is torn and nothing leaks.
+//
+// It starts FALSE-with-unloaded so the first call still takes the slow path, loads the environment
+// and sets it correctly; a bare `false` default would have permanently disabled logging.
+std::atomic<bool> g_any_enabled{false};
+std::atomic<bool> g_loaded{false};
+
+// Recompute the fast-path flag. MUST be called under g_mutex by anything that changes the set.
+void refresh_any_enabled_locked() {
+  g_any_enabled.store(g_all_channels || !g_channels.empty(), std::memory_order_relaxed);
+  g_loaded.store(g_channels_loaded, std::memory_order_relaxed);
+}
+
 void load_channels_locked() {
   if (g_channels_loaded) return;
   g_channels_loaded = true;
   const std::string& list = config::text("LUCENT_DEBUG");
-  if (list.empty()) return;
+  if (list.empty()) {
+    // THE CASE THE FAST PATH EXISTS FOR, and the one this early return originally skipped: no
+    // channels configured. Without refreshing here, g_loaded stayed false, the lock-free path never
+    // engaged, and the optimisation measured as having no effect at all — correct-looking code that
+    // did nothing. Set the flags before returning.
+    refresh_any_enabled_locked();
+    return;
+  }
   std::size_t start = 0;
   while (start <= list.size()) {
     const std::size_t comma = list.find(',', start);
@@ -36,6 +68,7 @@ void load_channels_locked() {
     if (comma == std::string::npos) break;
     start = comma + 1;
   }
+  refresh_any_enabled_locked();
 }
 
 std::FILE* stream_locked() {
@@ -92,6 +125,9 @@ void log(Level level, std::string_view channel, std::string_view message) {
 
 namespace detail {
 bool channel_enabled(std::string_view channel) {
+  // No lock, no allocation, no hash: once the set is known to be empty, nothing can be enabled.
+  if (g_loaded.load(std::memory_order_relaxed) && !g_any_enabled.load(std::memory_order_relaxed))
+    return false;
   std::lock_guard lock(g_mutex);
   load_channels_locked();
   if (g_all_channels) return true;
@@ -124,6 +160,7 @@ void enable_channels(std::string_view list) {
     if (comma == std::string::npos) break;
     start = comma + 1;
   }
+  refresh_any_enabled_locked();
 }
 
 void enable_channel(std::string_view channel, bool on) {
@@ -133,6 +170,7 @@ void enable_channel(std::string_view channel, bool on) {
   if (on) g_channels.insert(key);
   else    g_channels.erase(key);
   g_channel_cache[key] = on;
+  refresh_any_enabled_locked();
 }
 
 void set_sink(Sink sink) {
