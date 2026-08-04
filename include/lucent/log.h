@@ -111,6 +111,13 @@ namespace detail {
 // once any channel is on — see the COST note at the top, and use a Channel on a hot path. Kept out
 // of the public surface so the helpers below read cleanly.
 bool channel_enabled(std::string_view channel);
+
+// Discard an environment-derived channel set so the next call re-reads it. Called by config when
+// something changes WHICH variable, or which name, the set would come from (set_prefix,
+// set_channel_env, reset_cache). A set installed by an explicit enable_channels()/enable_channel()
+// is left alone — code that named its channels outranks the environment. Also bumps the generation,
+// so every Channel handle re-resolves.
+void rearm_channels_from_env();
 }  // namespace detail
 
 template <class... Args>
