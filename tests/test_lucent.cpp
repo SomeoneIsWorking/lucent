@@ -3,14 +3,24 @@
 #include "lucent/config.h"
 #include "lucent/log.h"
 
+#include <atomic>
+#include <chrono>
 #include <cstdlib>
 #include <iostream>
 #include <string>
+#include <thread>
 #include <vector>
 
 namespace {
 
 int g_failures = 0;
+
+// THE HARD CASE FOR AN INTERNED HANDLE: a Channel built — and read — during static initialisation,
+// before anything has loaded the environment or touched the channel set. Both of these run before
+// main(), so whatever caching scheme Channel uses has to survive being primed from a not-yet-loaded
+// world and still respond to every later enable_channels().
+const lucent::Channel g_early_channel{"early"};
+const bool g_early_answer_at_static_init = static_cast<bool>(g_early_channel);
 
 #define CHECK(cond)                                                                 \
   do {                                                                              \
@@ -185,6 +195,188 @@ void test_line_flush_debug_is_gated() {
   lucent::enable_channels("");
 }
 
+// ── Channel: the interned handle ────────────────────────────────────────────────────────────────
+
+void test_channel_resolved_before_any_config_load() {
+  // The value itself depends on the developer's environment (LUCENT_DEBUG may legitimately be set
+  // when running the suite), so what is asserted is not the answer but that the handle KEEPS
+  // WORKING: primed before load, it must still track every later change of the set.
+  std::cerr << "note: pre-load static-init read of Channel{\"early\"} answered "
+            << (g_early_answer_at_static_init ? "true" : "false")
+            << " (env-dependent, not asserted)\n";
+  lucent::enable_channels("");
+  CHECK(!g_early_channel);
+  lucent::enable_channels("early");
+  CHECK(bool(g_early_channel));
+  lucent::enable_channels("");
+  CHECK(!g_early_channel);
+}
+
+void test_channel_flips_when_the_set_changes_after_construction() {
+  lucent::enable_channels("");
+  const lucent::Channel ch{"otattr"};
+  CHECK(!ch);                       // off, and now cached as off
+
+  lucent::enable_channels("otattr");
+  CHECK(bool(ch));                  // a stale cache would still say false — the bug this guards
+
+  lucent::enable_channel("otattr", false);
+  CHECK(!ch);
+  lucent::enable_channel("otattr", true);
+  CHECK(bool(ch));
+
+  lucent::enable_channels("");
+  CHECK(!ch);
+}
+
+void test_channel_honours_all() {
+  lucent::enable_channels("");
+  const lucent::Channel ch{"never-named-anywhere"};
+  CHECK(!ch);
+  lucent::enable_channels("all");
+  CHECK(bool(ch));
+  lucent::enable_channels("");
+  CHECK(!ch);
+}
+
+void test_channel_that_is_off_stays_off_while_others_are_on() {
+  lucent::enable_channels("gpu,cd");
+  const lucent::Channel off{"otattr"};
+  const lucent::Channel on{"gpu"};
+  CHECK(!off);
+  CHECK(bool(on));
+  CHECK_EQ(std::string(off.name()), std::string("otattr"));
+  lucent::enable_channels("");
+}
+
+void test_debug_overload_taking_a_channel() {
+  Capture cap;
+  lucent::enable_channels("");
+  const lucent::Channel ch{"otattr"};
+  lucent::debug(ch, "store {:08X}", 0x800a6490u);
+  CHECK(cap.lines.empty());
+
+  lucent::enable_channels("otattr");
+  lucent::debug(ch, "store {:08X}", 0x800a6490u);
+  CHECK_EQ(cap.lines.size(), std::size_t(1));
+  CHECK_EQ(cap.lines[0], std::string("[otattr] store 800A6490"));
+
+  // The other levels take a Channel too, so a migrated call site never has to keep the literal
+  // around just to say info().
+  lucent::info(ch, "ready");
+  CHECK_EQ(cap.lines.back(), std::string("[otattr] ready"));
+  lucent::warn(ch, "odd");
+  CHECK_EQ(cap.lines.back(), std::string("[otattr:warn] odd"));
+  lucent::enable_channels("");
+}
+
+void test_line_flush_debug_takes_a_channel() {
+  Capture cap;
+  lucent::enable_channels("");
+  const lucent::Channel ch{"rows"};
+  lucent::Line row;
+  row.add("hidden");
+  row.flush_debug(ch);
+  CHECK(cap.lines.empty());
+  CHECK(row.empty());
+
+  lucent::enable_channels("rows");
+  lucent::Line row2;
+  row2.add("shown");
+  row2.flush_debug(ch);
+  CHECK_EQ(cap.lines.size(), std::size_t(1));
+  CHECK_EQ(cap.lines[0], std::string("[rows] shown"));
+  lucent::enable_channels("");
+}
+
+// A Channel is read without the lock while another thread changes the set under it. The design says
+// a racing reader gets a one-call-stale answer and then re-resolves; what must NEVER happen is a
+// reader latching onto one answer permanently. Run this under -fsanitize=thread as well — the
+// generation and the packed cache word are relaxed atomics, so a real data race would show up there.
+void test_channel_tracks_changes_across_threads() {
+  lucent::enable_channels("");
+  static const lucent::Channel ch{"racy"};
+  std::atomic<bool> stop{false};
+  std::atomic<int> saw_true{0}, saw_false{0};
+
+  std::vector<std::thread> readers;
+  for (int t = 0; t < 4; ++t) {
+    readers.emplace_back([&] {
+      while (!stop.load(std::memory_order_relaxed)) {
+        if (ch) saw_true.fetch_add(1, std::memory_order_relaxed);
+        else    saw_false.fetch_add(1, std::memory_order_relaxed);
+      }
+    });
+  }
+  for (int i = 0; i < 200; ++i) {
+    lucent::enable_channels(i % 2 ? "racy" : "");
+    std::this_thread::sleep_for(std::chrono::microseconds(200));
+  }
+  stop.store(true, std::memory_order_relaxed);
+  for (auto& t : readers) t.join();
+
+  // Both answers must have been observed: all-false would mean the handle never noticed an enable,
+  // all-true that it never noticed a disable. Either is the stale-cache bug this must not have.
+  CHECK(saw_true.load() > 0);
+  CHECK(saw_false.load() > 0);
+  lucent::enable_channels("");
+  CHECK(!ch);
+}
+
+// ── The measurement the header's claim has to earn ──────────────────────────────────────────────
+// The previous docstring asserted "a disabled channel costs one cached bool test" without ever
+// measuring the case that matters — SOME channel enabled, the caller's channel off — where the old
+// path took a mutex, built a std::string and hashed it. This benchmark times exactly that case both
+// ways and prints real numbers. It is deliberately run with a channel enabled ("gpu") that is NOT
+// the channel being tested ("otattr").
+volatile unsigned g_bench_sink = 0;
+
+void test_channel_gate_is_measurably_cheaper() {
+  lucent::enable_channels("gpu");            // SOME channel on -> the g_any_enabled fast path is off
+  const lucent::Channel ch{"otattr"};
+  CHECK(!ch);
+  CHECK(!lucent::channel_on("otattr"));
+
+  constexpr int kWarm = 10000;
+  constexpr int kIters = 2000000;
+  using clock = std::chrono::steady_clock;
+
+  unsigned acc = 0;
+  for (int i = 0; i < kWarm; ++i) { acc += lucent::channel_on("otattr"); acc += bool(ch); }
+  g_bench_sink = acc;
+
+  const auto t0 = clock::now();
+  for (int i = 0; i < kIters; ++i) acc += lucent::channel_on("otattr");
+  const auto t1 = clock::now();
+  for (int i = 0; i < kIters; ++i) acc += bool(ch);
+  const auto t2 = clock::now();
+  g_bench_sink = acc;
+
+  const double sv_ns = std::chrono::duration<double, std::nano>(t1 - t0).count() / kIters;
+  const double ch_ns = std::chrono::duration<double, std::nano>(t2 - t1).count() / kIters;
+
+  // The same shape again, but through the actual call site a consumer writes.
+  const auto d0 = clock::now();
+  for (int i = 0; i < kIters; ++i) lucent::debug("otattr", "store {:08X}", unsigned(i));
+  const auto d1 = clock::now();
+  for (int i = 0; i < kIters; ++i) lucent::debug(ch, "store {:08X}", unsigned(i));
+  const auto d2 = clock::now();
+  const double dsv_ns = std::chrono::duration<double, std::nano>(d1 - d0).count() / kIters;
+  const double dch_ns = std::chrono::duration<double, std::nano>(d2 - d1).count() / kIters;
+
+  std::cerr << "bench (channel off, another channel ON), ns per call, " << kIters << " iters:\n"
+            << "  channel_on(string_view) " << sv_ns << "\n"
+            << "  Channel gate            " << ch_ns << "   (" << (sv_ns / ch_ns) << "x)\n"
+            << "  debug(string_view, ...) " << dsv_ns << "\n"
+            << "  debug(Channel, ...)     " << dch_ns << "   (" << (dsv_ns / dch_ns) << "x)\n";
+
+  // Loose gate: the real gap is an order of magnitude, but this runs on shared, loaded machines, so
+  // assert only what noise cannot erase.
+  CHECK(ch_ns * 2.0 < sv_ns);
+  CHECK(dch_ns * 2.0 < dsv_ns);
+  lucent::enable_channels("");
+}
+
 }  // namespace
 
 int main() {
@@ -198,6 +390,14 @@ int main() {
   test_line_builder();
   test_line_truncates_safely();
   test_line_flush_debug_is_gated();
+  test_channel_resolved_before_any_config_load();
+  test_channel_flips_when_the_set_changes_after_construction();
+  test_channel_honours_all();
+  test_channel_that_is_off_stays_off_while_others_are_on();
+  test_debug_overload_taking_a_channel();
+  test_line_flush_debug_takes_a_channel();
+  test_channel_tracks_changes_across_threads();
+  test_channel_gate_is_measurably_cheaper();
 
   if (g_failures == 0) std::cout << "all tests passed\n";
   else std::cerr << g_failures << " failure(s)\n";

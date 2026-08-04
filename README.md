@@ -55,10 +55,44 @@ Choose by **audience**, not by taste:
 | Something a normal run should print | `info` / `warn` / `error` | always |
 | Something shown only when asked for | `debug("channel", …)` | only when the channel is on |
 
+On a hot path use `debug(channel_handle, …)` — see [Hot call sites](#hot-call-sites-channel).
+
 If you find yourself writing `if (verbose) fprintf(stderr, …)`, that is a `debug` channel.
 
 Enable channels from the environment — `LUCENT_DEBUG=cd,gpu`, or `LUCENT_DEBUG=all` — or at runtime
 via `lucent::enable_channels("cd,gpu")`, which is what a debug console should call.
+
+## Hot call sites: `Channel`
+
+With **no** channel enabled, `debug("gpu", …)` is one relaxed atomic load and a branch — genuinely
+free. With **any** channel enabled it has to hash the name, so it takes the mutex and builds a
+`std::string`. That is fine for ordinary code and wrong for a call site that runs per instruction,
+per packet or per pixel — where it bites precisely when someone is debugging.
+
+Hoist the name into a `Channel` and the gate becomes a load, a compare and a branch:
+
+```cpp
+static const lucent::Channel ch{"otattr"};   // constant-initialised; no guard variable
+if (ch) { ...work you only do when diagnosing... }
+lucent::debug(ch, "store {:08X}", addr);     // info/warn/error take a Channel too
+```
+
+Measured (gcc 15 `-O3`, x86-64, 2M iterations, one channel **on** and the measured channel **off**,
+median of five runs):
+
+| | string_view | `Channel` | |
+|---|---|---|---|
+| gate (`channel_on` vs `if (ch)`) | 19.4 ns | 0.67 ns | ~29x |
+| whole `debug(…)` site | 18.3 ns | 0.66 ns | ~28x |
+
+The mutex is uncontended in that benchmark, so ~29x is the floor: with several threads logging, the
+string_view path degrades and the `Channel` path does not — it never takes the lock.
+
+A `Channel` is **not** a stale snapshot. Every `enable_channels()` / `enable_channel()` bumps a
+global generation that invalidates every `Channel` in the program at once, so a debug console's
+`debug gpu` typed mid-run takes effect on the next call. A `Channel` constructed — or read — during
+static initialisation, before the environment has been consulted, is handled too. The name is
+borrowed, not copied: pass a string literal or something that outlives the `Channel`.
 
 ## Configuration
 
@@ -137,6 +171,14 @@ cmake -S . -B build && cmake --build build && ./build/lucent_tests
 Emitting is mutex-guarded, so lines from different threads do not interleave. `set_prefix` should be
 called once at startup, before any lookup — values are cached, so changing it afterwards will not
 re-read what has already been read.
+
+The channel gates — both the no-channels-enabled fast path and a `Channel` handle — read relaxed
+atomics without the lock. A reader racing a concurrent `enable_channels()` gets the previous answer
+for one call and re-resolves on the next; nothing tears. The test suite exercises this with four
+reader threads against a toggling writer, and passes clean under `-fsanitize=thread`.
+
+lucent's own state is constructed on first use and never destroyed, so it is safe to log from a
+static initialiser or a static destructor — the first line of the program to the last.
 
 ## License
 

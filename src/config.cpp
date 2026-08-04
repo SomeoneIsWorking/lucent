@@ -13,25 +13,43 @@ namespace {
 // One lock over the caches. Lookups are cheap and rare relative to real work, and a shared mutex
 // buys nothing measurable here; correctness under concurrent first-touch is worth more than the
 // contention we are not going to have.
-std::mutex g_mutex;
-std::string g_prefix;
-std::unordered_map<std::string, std::string> g_values;  // full name -> value ("" also means unset)
-std::unordered_map<std::string, bool> g_present;
+struct State {
+  std::mutex mutex;
+  std::string prefix;
+  std::unordered_map<std::string, std::string> values;  // full name -> value ("" also means unset)
+  std::unordered_map<std::string, bool> present;
+};
+
+// CONSTRUCTED ON FIRST USE AND NEVER DESTROYED, which is not a style choice.
+//
+// As plain namespace-scope objects these were subject to static-initialisation order across
+// translation units: a consumer that logged, or read config, from its own static initialiser could
+// reach an unordered_map whose constructor had not run — bucket count zero, hash modulo zero, SIGFPE
+// inside operator[]. That is exactly how it failed the first time a Channel was read during static
+// init. Deliberately leaking the State also removes the mirror-image hazard at the other end of the
+// program: a destructor that logs during static destruction would otherwise touch freed containers.
+// A logger has to be usable from the first line of a program to the last; a few hundred bytes never
+// returned to the allocator is the price.
+State& state() {
+  static State* s = new State();
+  return *s;
+}
 
 std::string full_name(std::string_view name) {
-  std::string out(g_prefix);
+  std::string out(state().prefix);
   out.append(name);
   return out;
 }
 
 // Reads the environment once per name and remembers the answer, including "not set".
 const std::string& cached(std::string_view name) {
+  State& st = state();
   std::string key = full_name(name);
-  auto it = g_values.find(key);
-  if (it != g_values.end()) return it->second;
+  auto it = st.values.find(key);
+  if (it != st.values.end()) return it->second;
   const char* raw = std::getenv(key.c_str());
-  g_present[key] = raw != nullptr;
-  return g_values.emplace(std::move(key), raw ? raw : "").first->second;
+  st.present[key] = raw != nullptr;
+  return st.values.emplace(std::move(key), raw ? raw : "").first->second;
 }
 
 bool falsey(std::string_view v) {
@@ -44,24 +62,26 @@ bool falsey(std::string_view v) {
 }  // namespace
 
 void set_prefix(std::string_view prefix) {
-  std::lock_guard lock(g_mutex);
-  g_prefix.assign(prefix);
+  State& st = state();
+  std::lock_guard lock(st.mutex);
+  st.prefix.assign(prefix);
 }
 
 std::string_view prefix() {
-  std::lock_guard lock(g_mutex);
-  return g_prefix;
+  State& st = state();
+  std::lock_guard lock(st.mutex);
+  return st.prefix;
 }
 
 bool flag(std::string_view name) {
-  std::lock_guard lock(g_mutex);
+  std::lock_guard lock(state().mutex);
   const std::string& v = cached(name);
-  if (!g_present[full_name(name)]) return false;
+  if (!state().present[full_name(name)]) return false;
   return !falsey(v);
 }
 
 long number(std::string_view name, long fallback) {
-  std::lock_guard lock(g_mutex);
+  std::lock_guard lock(state().mutex);
   const std::string& v = cached(name);
   if (v.empty()) return fallback;
   char* end = nullptr;
@@ -70,32 +90,34 @@ long number(std::string_view name, long fallback) {
 }
 
 const std::string& text(std::string_view name) {
-  std::lock_guard lock(g_mutex);
+  std::lock_guard lock(state().mutex);
   return cached(name);
 }
 
 bool present(std::string_view name) {
-  std::lock_guard lock(g_mutex);
+  std::lock_guard lock(state().mutex);
   cached(name);
-  return g_present[full_name(name)];
+  return state().present[full_name(name)];
 }
 
 std::vector<std::string> active() {
-  std::lock_guard lock(g_mutex);
+  State& st = state();
+  std::lock_guard lock(st.mutex);
   std::vector<std::string> out;
   if (!environ) return out;
   for (char** e = environ; *e; ++e) {
     std::string_view entry(*e);
-    if (g_prefix.empty() || entry.substr(0, g_prefix.size()) == g_prefix) out.emplace_back(entry);
+    if (st.prefix.empty() || entry.substr(0, st.prefix.size()) == st.prefix) out.emplace_back(entry);
   }
   std::sort(out.begin(), out.end());
   return out;
 }
 
 void reset_cache() {
-  std::lock_guard lock(g_mutex);
-  g_values.clear();
-  g_present.clear();
+  State& st = state();
+  std::lock_guard lock(st.mutex);
+  st.values.clear();
+  st.present.clear();
 }
 
 }  // namespace lucent::config
