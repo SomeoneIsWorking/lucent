@@ -18,6 +18,27 @@
 // Names are given WITHOUT the application prefix. Set the prefix once at startup:
 //     lucent::config::set_prefix("MYAPP_");     // then "WIDE" reads MYAPP_WIDE
 // The default prefix is empty, so "WIDE" reads WIDE.
+//
+// ── THE TWO VARIABLES LUCENT READS FOR ITSELF ───────────────────────────────────────────────────
+// The logger resolves its own configuration — which debug channels are on, and where output goes —
+// from the environment, LAZILY, on the first log call. By default those are `<prefix>LUCENT_DEBUG`
+// and `<prefix>LUCENT_LOG_FILE`.
+//
+// A consumer whose users already type some other name (a port whose every script, doc and .env says
+// `PSXPORT_DEBUG`) renames them. THE ONLY ORDER-FREE WAY TO DO THAT IS AT BUILD TIME, so that is the
+// primary mechanism — define these when compiling lucent, or set the identically-named CMake
+// variables before `add_subdirectory`/`FetchContent_MakeAvailable`:
+//
+//     LUCENT_CHANNEL_ENV="PSXPORT_DEBUG"        replaces <prefix>LUCENT_DEBUG
+//     LUCENT_LOG_FILE_ENV="PSXPORT_LOG_FILE"    replaces <prefix>LUCENT_LOG_FILE
+//
+// A build-time name needs no initialisation call, so `lucent::debug(...)` on the program's very
+// first line — before main, from a static initialiser — already sees the right variable. A runtime
+// setter alone cannot promise that: whatever logs before the setter runs is silently lost, and
+// "logging works only because something else happens to run first" is precisely the failure this
+// library is supposed to remove. The setters below exist for tests and for genuinely late
+// reconfiguration; they re-read the environment rather than being ignored, but they cannot recover a
+// line that was already dropped.
 #pragma once
 
 #include <string>
@@ -26,10 +47,29 @@
 
 namespace lucent::config {
 
-// Prefix applied to every name before it reaches the environment. Set once at startup, before any
-// lookup — values are cached, so changing it later will not re-read what has already been read.
+// Prefix applied to every name before it reaches the environment. Changing it DISCARDS every cached
+// lookup and re-arms the logger's channel set, so a call after something has already read config (or
+// already logged) still takes effect rather than being silently half-applied. It cannot un-drop a
+// debug line that was emitted while the wrong prefix was in force — set it early, or better, build
+// with LUCENT_CHANNEL_ENV / LUCENT_LOG_FILE_ENV and never call it at all.
 void set_prefix(std::string_view prefix);
 std::string_view prefix();
+
+// The environment variable naming the enabled debug channels ("cd,gpu" or "all"). Empty name — the
+// default — means `<prefix>LUCENT_DEBUG`; a name given here is used VERBATIM, without the prefix,
+// precisely so it does not inherit set_prefix's ordering. The compile-time LUCENT_CHANNEL_ENV
+// supplies the initial value. Setting it re-reads the environment even if channels were already
+// loaded, unless enable_channels() has been called explicitly — an explicit call always wins.
+void set_channel_env(std::string_view env_name);
+std::string channel_env();          // the full variable name currently in effect
+const std::string& channel_list();  // its value ("" when unset), cached like any other lookup
+
+// The same, for the file output goes to. Empty name means `<prefix>LUCENT_LOG_FILE`; initial value
+// comes from the compile-time LUCENT_LOG_FILE_ENV. The stream is resolved on first output and not
+// re-opened afterwards, so this must be set before the first line if it is to have any effect.
+void set_log_file_env(std::string_view env_name);
+std::string log_file_env();
+const std::string& log_file_path();
 
 // A boolean switch. True when the variable is present and is not "0", "false", "no" or "off"
 // (case-insensitive). Absent means false — the safe default for a feature toggle.

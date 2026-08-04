@@ -33,6 +33,9 @@ struct State {
   std::unordered_set<std::string> channels;   // explicitly enabled channels
   bool all_channels = false;
   bool channels_loaded = false;
+  // True once enable_channels()/enable_channel() has been called. Code that names its channels
+  // outranks the environment, so a later re-arm must not throw that away.
+  bool channels_explicit = false;
   std::unordered_map<std::string, bool> channel_cache;
 };
 
@@ -86,7 +89,10 @@ bool channel_enabled_locked(std::string_view channel) {
 void load_channels_locked() {
   if (state().channels_loaded) return;
   state().channels_loaded = true;
-  const std::string& list = config::text("LUCENT_DEBUG");
+  // NOT config::text("LUCENT_DEBUG"): which variable this is comes from config, so that a consumer
+  // can name it (PSXPORT_DEBUG) at build time and this lazy first-use load already reads the right
+  // one — with no initialisation call for anything to run before.
+  const std::string& list = config::channel_list();
   if (list.empty()) {
     // THE CASE THE FAST PATH EXISTS FOR, and the one this early return originally skipped: no
     // channels configured. Without refreshing here, g_loaded stayed false, the lock-free path never
@@ -112,7 +118,7 @@ void load_channels_locked() {
 
 std::FILE* stream_locked() {
   if (state().stream) return state().stream;
-  const std::string& path = config::text("LUCENT_LOG_FILE");
+  const std::string& path = config::log_file_path();
   if (!path.empty()) {
     if (std::FILE* f = std::fopen(path.c_str(), "a")) {
       // Line-buffered so `tail -f` shows progress and a crash does not swallow the last lines.
@@ -171,6 +177,18 @@ bool channel_enabled(std::string_view channel) {
   load_channels_locked();
   return channel_enabled_locked(channel);
 }
+
+void rearm_channels_from_env() {
+  std::lock_guard lock(state().mutex);
+  if (state().channels_explicit) return;   // an explicit enable_channels() outranks the environment
+  if (!state().channels_loaded) return;    // nothing loaded yet; the next call reads the new name
+  state().channels.clear();
+  state().all_channels = false;
+  state().channel_cache.clear();
+  state().channels_loaded = false;
+  refresh_any_enabled_locked();            // g_loaded goes false: the fast path re-consults on the
+                                           // next call, and every Channel handle re-resolves
+}
 }  // namespace detail
 
 bool Channel::resolve() const {
@@ -198,7 +216,8 @@ void enable_channels(std::string_view list) {
   state().channels.clear();
   state().all_channels = false;
   state().channel_cache.clear();
-  state().channels_loaded = true;  // an explicit call wins over the environment
+  state().channels_loaded = true;    // an explicit call wins over the environment
+  state().channels_explicit = true;  // ...and keeps winning across a later re-arm
   std::string text(list);
   std::size_t start = 0;
   while (start <= text.size()) {
@@ -218,6 +237,7 @@ void enable_channels(std::string_view list) {
 void enable_channel(std::string_view channel, bool on) {
   std::lock_guard lock(state().mutex);
   load_channels_locked();
+  state().channels_explicit = true;
   std::string key(channel);
   if (on) state().channels.insert(key);
   else    state().channels.erase(key);

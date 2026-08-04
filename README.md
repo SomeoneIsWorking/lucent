@@ -62,6 +62,26 @@ If you find yourself writing `if (verbose) fprintf(stderr, …)`, that is a `deb
 Enable channels from the environment — `LUCENT_DEBUG=cd,gpu`, or `LUCENT_DEBUG=all` — or at runtime
 via `lucent::enable_channels("cd,gpu")`, which is what a debug console should call.
 
+### Naming the variables yourself
+
+If your users already type something other than `LUCENT_DEBUG`, rename it **at build time**:
+
+```cmake
+set(LUCENT_CHANNEL_ENV  "MYAPP_DEBUG")     # replaces <prefix>LUCENT_DEBUG
+set(LUCENT_LOG_FILE_ENV "MYAPP_LOG_FILE")  # replaces <prefix>LUCENT_LOG_FILE
+add_subdirectory(vendor/lucent)            # or FetchContent_MakeAvailable(lucent)
+```
+
+Build time and not an init call, deliberately. Both variables are resolved **lazily, on the first log
+call**, so a baked-in name is already correct for the very first `lucent::debug()` in the process —
+including one from a static initialiser. A setter would instead have to be *invoked by something*,
+and whatever logged before it ran would be dropped with no message: logging that works only because
+some unrelated code happens to run first is logging that will one day stop working for no visible
+reason. `lucent::config::set_channel_env()` exists for tests and late reconfiguration — it re-reads
+the environment rather than being ignored — but it cannot recover a line already dropped.
+
+An explicit `enable_channels()` always outranks the environment, whichever variable that is.
+
 ## Hot call sites: `Channel`
 
 With **no** channel enabled, `debug("gpu", …)` is one relaxed atomic load and a branch — genuinely
@@ -168,9 +188,10 @@ cmake -S . -B build && cmake --build build && ./build/lucent_tests
 
 ## Threading
 
-Emitting is mutex-guarded, so lines from different threads do not interleave. `set_prefix` should be
-called once at startup, before any lookup — values are cached, so changing it afterwards will not
-re-read what has already been read.
+Emitting is mutex-guarded, so lines from different threads do not interleave. `set_prefix` should
+still be called once at startup, before other threads are reading config — it now discards the
+cached lookups and re-arms the channel set, so a late call takes effect rather than half-applying,
+but a `debug()` that already ran under the wrong prefix is gone.
 
 The channel gates — both the no-channels-enabled fast path and a `Channel` handle — read relaxed
 atomics without the lock. A reader racing a concurrent `enable_channels()` gets the previous answer
