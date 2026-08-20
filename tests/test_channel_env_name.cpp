@@ -14,9 +14,9 @@
 // silently, with nothing in the diagnostics themselves to say why. A mechanism that works by
 // accident of ordering is a mechanism that will fail without a message.
 //
-// The negative this test can print is therefore the interesting one: if the name is NOT honoured, the
-// pre-main line is simply absent, so the assertions below check the captured line COUNT and CONTENT,
-// and the diagnostic prints what was captured instead — never a bare "no output".
+// The negative this test can print is therefore the interesting one: if the name is NOT honoured,
+// the pre-main line is simply absent, so the assertions below check the captured line COUNT and
+// CONTENT, and the diagnostic prints what was captured instead — never a bare "no output".
 #include "lucent/config.h"
 #include "lucent/log.h"
 
@@ -29,23 +29,23 @@ namespace {
 
 int g_failures = 0;
 
-#define CHECK(cond)                                                                 \
-  do {                                                                              \
-    if (!(cond)) {                                                                  \
-      std::cerr << "FAIL " << __FILE__ << ":" << __LINE__ << "  " << #cond << "\n"; \
-      ++g_failures;                                                                 \
-    }                                                                               \
+#define CHECK(cond)                                                                                \
+  do {                                                                                             \
+    if (!(cond)) {                                                                                 \
+      std::cerr << "FAIL " << __FILE__ << ":" << __LINE__ << "  " << #cond << "\n";                \
+      ++g_failures;                                                                                \
+    }                                                                                              \
   } while (0)
 
-#define CHECK_EQ(a, b)                                                                  \
-  do {                                                                                  \
-    auto va = (a);                                                                      \
-    auto vb = (b);                                                                      \
-    if (!(va == vb)) {                                                                  \
-      std::cerr << "FAIL " << __FILE__ << ":" << __LINE__ << "  " << #a << " == " << #b \
-                << "\n  left:  " << va << "\n  right: " << vb << "\n";                  \
-      ++g_failures;                                                                     \
-    }                                                                                   \
+#define CHECK_EQ(a, b)                                                                             \
+  do {                                                                                             \
+    const auto &va = (a);                                                                          \
+    const auto &vb = (b);                                                                          \
+    if (!(va == vb)) {                                                                             \
+      std::cerr << "FAIL " << __FILE__ << ":" << __LINE__ << "  " << #a << " == " << #b            \
+                << "\n  left:  " << va << "\n  right: " << vb << "\n";                             \
+      ++g_failures;                                                                                \
+    }                                                                                              \
   } while (0)
 
 // ── Everything from here to `g_early_done` runs BEFORE main() ───────────────────────────────────
@@ -57,7 +57,8 @@ std::vector<std::string> g_early_lines;
 
 struct InstallEarlySink {
   InstallEarlySink() {
-    lucent::set_sink([](lucent::Level, std::string_view line) { g_early_lines.emplace_back(line); });
+    lucent::set_sink(
+        [](lucent::Level, std::string_view line) { g_early_lines.emplace_back(line); });
   }
 };
 const InstallEarlySink g_early_sink;
@@ -71,11 +72,13 @@ const int g_early_done = [] {
 }();
 
 void test_the_first_log_call_in_the_process_honours_the_compiled_in_env_name() {
-  // The denominator: two debug() calls were made before main, on two DIFFERENT channels, exactly one
-  // of which MYAPP_DEBUG names. So this asserts both that the variable was read (the "early" line is
-  // present) and that reading it did not simply turn everything on (the "quiet" line is absent).
+  // The denominator: two debug() calls were made before main, on two DIFFERENT channels, exactly
+  // one of which MYAPP_DEBUG names. So this asserts both that the variable was read (the "early"
+  // line is present) and that reading it did not simply turn everything on (the "quiet" line is
+  // absent).
   std::cerr << "note: captured " << g_early_lines.size() << " pre-main line(s):\n";
-  for (const std::string& l : g_early_lines) std::cerr << "  | " << l << "\n";
+  for (const std::string &l : g_early_lines)
+    std::cerr << "  | " << l << "\n";
   if (g_early_lines.empty())
     std::cerr << "note: NOTHING was captured — either the compiled-in channel variable was ignored,"
                  " or MYAPP_DEBUG was not set in this process's environment (it is: '"
@@ -120,17 +123,18 @@ void test_an_explicit_enable_channels_outranks_a_later_re_read() {
   lucent::set_sink([&lines](lucent::Level, std::string_view line) { lines.emplace_back(line); });
 
   lucent::enable_channels("chosen-in-code");
-  lucent::config::set_channel_env("MYAPP_DEBUG");   // would re-read "early" if it won
+  lucent::config::set_channel_env("MYAPP_DEBUG"); // would re-read "early" if it won
   lucent::debug("chosen-in-code", "still on");
   lucent::debug("early", "must not come back");
   CHECK_EQ(lines.size(), std::size_t(1));
-  if (lines.size() == 1) CHECK_EQ(lines[0], std::string("[chosen-in-code] still on"));
+  if (lines.size() == 1)
+    CHECK_EQ(lines[0], std::string("[chosen-in-code] still on"));
 
   lucent::enable_channels("");
   lucent::set_sink(nullptr);
 }
 
-}  // namespace
+} // namespace
 
 int main() {
   test_the_first_log_call_in_the_process_honours_the_compiled_in_env_name();
@@ -138,7 +142,9 @@ int main() {
   test_the_environment_is_re_read_when_the_name_changes_late();
   test_an_explicit_enable_channels_outranks_a_later_re_read();
 
-  if (g_failures == 0) std::cout << "all tests passed\n";
-  else std::cerr << g_failures << " failure(s)\n";
+  if (g_failures == 0)
+    std::cout << "all tests passed\n";
+  else
+    std::cerr << g_failures << " failure(s)\n";
   return g_failures == 0 ? 0 : 1;
 }
