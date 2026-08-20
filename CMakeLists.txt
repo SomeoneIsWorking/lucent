@@ -4,12 +4,21 @@ project(lucent VERSION 0.1.0 LANGUAGES CXX)
 set(CMAKE_CXX_STANDARD 20)
 set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
+set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
+
+if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang")
+  message(FATAL_ERROR "lucent requires Clang; configure with -DCMAKE_CXX_COMPILER=clang++")
+endif()
 
 add_library(lucent STATIC
   src/config.cpp
+  src/http.cpp
   src/log.cpp
 )
 add_library(lucent::lucent ALIAS lucent)
+
+find_package(Threads REQUIRED)
+target_link_libraries(lucent PUBLIC Threads::Threads)
 
 target_include_directories(lucent PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
@@ -47,9 +56,12 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     enable_testing()
     add_executable(lucent_tests tests/test_lucent.cpp)
     # The Channel tests spawn threads to prove a handle tracks the enabled set under concurrency.
-    find_package(Threads REQUIRED)
     target_link_libraries(lucent_tests PRIVATE lucent Threads::Threads)
     add_test(NAME lucent_tests COMMAND lucent_tests)
+
+    add_executable(lucent_http_tests tests/test_http.cpp)
+    target_link_libraries(lucent_http_tests PRIVATE lucent Threads::Threads)
+    add_test(NAME lucent_http_tests COMMAND lucent_http_tests)
 
     # A SECOND binary, compiled from lucent's sources with the consumer-name macros set, because
     # that is the thing under test: `lucent` itself is built with the defaults, and a compile-time
@@ -63,6 +75,16 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     # Set in the ENVIRONMENT, not by the test, on purpose: the call under test happens before main(),
     # so there is no point at which the test could have set it itself.
     set_tests_properties(lucent_env_name_tests PROPERTIES ENVIRONMENT "MYAPP_DEBUG=early")
+
+    find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    add_test(NAME cpp_quality
+      COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_cpp_quality.sh"
+              "${CMAKE_CURRENT_BINARY_DIR}")
+    add_test(NAME source_structure
+      COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_source_structure.py")
+    add_test(NAME source_structure_selftest
+      COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_source_structure.py"
+              --selftest)
   endif()
 endif()
 

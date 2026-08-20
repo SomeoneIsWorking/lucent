@@ -1,9 +1,9 @@
 # lucent
 
-A small C++20 library for the two things every program needs and every program reinvents badly:
-**logging** and **configuration**.
+A small C++20 library for the infrastructure every program needs and otherwise reinvents badly:
+**logging**, **configuration**, and a **loopback HTTP control channel**.
 
-No dependencies. Two headers. Roughly 300 lines of implementation.
+No third-party dependencies.
 
 ```cpp
 #include <lucent/log.h>
@@ -19,6 +19,26 @@ lucent::warn ("cd",   "{} missing — extracting from disc", path);
 lucent::error("boot", "cannot resolve {}", path);
 lucent::debug("gpu",  "prim {} at ({}, {})", i, x, y);   // silent unless the channel is on
 ```
+
+For an interactive local control plane, the consumer owns routes while Lucent owns sockets,
+request limits, concurrent dispatch, response framing, and shutdown:
+
+```cpp
+#include <lucent/http.h>
+
+lucent::http::Server server({.port = 32123}, [](const lucent::http::Request& request) {
+  if (request.method == "GET" && request.path() == "/status") {
+    return lucent::http::Response::json(200, "OK", R"({"ready":true})");
+  }
+  return lucent::http::Response::text(404, "Not Found", "unknown endpoint\n");
+});
+if (!server.start()) return 1;
+```
+
+The listener binds strictly to `127.0.0.1`. Requests are bounded and handled concurrently, so a
+slow screenshot or probe route does not prevent another connection from delivering input. This is
+a control channel, not a general web framework: one request per connection, no remote binding, TLS,
+keep-alive, or chunked transfer encoding.
 
 ```
 [boot] loaded assets/main.bin (716800 bytes)
