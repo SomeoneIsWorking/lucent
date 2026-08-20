@@ -370,11 +370,58 @@ void test_channel_gate_is_measurably_cheaper() {
             << "  debug(string_view, ...) " << dsv_ns << "\n"
             << "  debug(Channel, ...)     " << dch_ns << "   (" << (dsv_ns / dch_ns) << "x)\n";
 
-  // Loose gate: the real gap is an order of magnitude, but this runs on shared, loaded machines, so
-  // assert only what noise cannot erase.
-  CHECK(ch_ns * 2.0 < sv_ns);
-  CHECK(dch_ns * 2.0 < dsv_ns);
+  // THE CONTRACT INVERTED, 2026-08-20. This test used to assert `ch_ns * 2.0 < sv_ns` — it
+  // DOCUMENTED the string-keyed form being at least twice as slow, and passed happily while it was
+  // 29x slower (18.9 ns vs 0.65 ns, measured here before the fix). That gap was not academic: with
+  // one channel enabled it cost the Tomba!2 port 6.4% of total run time, because a string-keyed
+  // gate took the state mutex, built a std::string and hashed it on EVERY call site, every store.
+  //
+  // Both forms now answer from the same lock-free immutable snapshot, so what this asserts is that
+  // the string-keyed form stays in the SAME ORDER OF MAGNITUDE as the interned handle. If anyone
+  // reintroduces a lock, an allocation or a hash on this path, the ratio blows past 8x and this
+  // fails — which is the negative this test exists to be able to print.
+  std::cerr << "  ratio string/Channel    " << (sv_ns / ch_ns) << "  (was 29x with the locked map)\n";
+  CHECK(sv_ns < ch_ns * 8.0);
+  CHECK(dsv_ns < dch_ns * 8.0);
   lucent::enable_channels("");
+}
+
+// The snapshot must AGREE with the set it is published from, through every mutation that can change
+// it. This is the correctness half of the change above: a stale snapshot would make a channel the
+// caller just enabled read as off (silently no logging) or one just disabled read as on. Both forms
+// are checked together at each step, because they now share one source of truth and the failure that
+// matters is them disagreeing with the set — or with each other.
+void test_string_keyed_gate_tracks_the_set() {
+  const lucent::Channel ch{"snap"};
+
+  lucent::enable_channels("");
+  CHECK(!lucent::channel_on("snap"));
+  CHECK(!ch);
+
+  lucent::enable_channel("snap");                  // single-channel mutation
+  CHECK(lucent::channel_on("snap"));
+  CHECK(bool(ch));
+  CHECK(!lucent::channel_on("other"));
+
+  lucent::enable_channel("snap", false);           // ...and back off
+  CHECK(!lucent::channel_on("snap"));
+  CHECK(!ch);
+
+  lucent::enable_channels("a,snap,b");             // whole-list mutation
+  CHECK(lucent::channel_on("snap"));
+  CHECK(lucent::channel_on("a"));
+  CHECK(lucent::channel_on("b"));
+  CHECK(!lucent::channel_on("c"));
+  CHECK(bool(ch));
+
+  lucent::enable_channels("all");                  // the wildcard
+  CHECK(lucent::channel_on("anything-at-all"));
+  CHECK(bool(ch));
+
+  lucent::enable_channels("");
+  CHECK(!lucent::channel_on("snap"));
+  CHECK(!lucent::channel_on("anything-at-all"));
+  CHECK(!ch);
 }
 
 }  // namespace
@@ -398,6 +445,7 @@ int main() {
   test_line_flush_debug_takes_a_channel();
   test_channel_tracks_changes_across_threads();
   test_channel_gate_is_measurably_cheaper();
+  test_string_keyed_gate_tracks_the_set();
 
   if (g_failures == 0) std::cout << "all tests passed\n";
   else std::cerr << g_failures << " failure(s)\n";

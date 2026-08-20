@@ -6,8 +6,8 @@
 #include <cstdio>
 #include <mutex>
 #include <string>
-#include <unordered_map>
 #include <unordered_set>
+#include <vector>
 
 namespace lucent {
 
@@ -36,7 +36,6 @@ struct State {
   // True once enable_channels()/enable_channel() has been called. Code that names its channels
   // outranks the environment, so a later re-arm must not throw that away.
   bool channels_explicit = false;
-  std::unordered_map<std::string, bool> channel_cache;
 };
 
 State& state() {
@@ -62,6 +61,56 @@ State& state() {
 std::atomic<bool> g_any_enabled{false};
 std::atomic<bool> g_loaded{false};
 
+// THE ENABLED SET, READABLE WITHOUT THE MUTEX — the other half of the fast path above.
+//
+// `g_any_enabled` made a channel free only while NOTHING was enabled. The moment a consumer turned
+// one channel on — which is what anybody debugging or profiling does — every string-keyed call site
+// went back to the full slow path: lock the mutex, construct a std::string from the string_view,
+// hash it. MEASURED on the Tomba!2 port: enabling a channel that NOTHING logs to (`nosuchchannel`,
+// a pure negative control, so zero actual debug work) cost +6.4% of total run time, and the
+// in-tree bench below put one string-keyed gate at 18.9 ns against the Channel handle's 0.65 ns.
+// So the earlier "a disabled channel is free" fix was true only for the all-off case, and the
+// cost it removed came straight back for exactly the runs that measure anything.
+//
+// The set is READ constantly and WRITTEN almost never (an enable_channels() call or two per
+// process), and it holds a handful of short names. That is the shape of an immutable snapshot
+// published behind an atomic pointer: readers take no lock, allocate nothing and hash nothing, and
+// a lookup is a linear scan of a few string compares that reject on length first.
+//
+// NEVER FREED, deliberately. Replacing a snapshot leaves the old one alive, so a reader that loaded
+// the pointer a moment before a concurrent enable_channels() keeps reading a valid object instead of
+// one being destroyed under it — the alternative is reference counting or hazard pointers on the
+// hottest read in the library. The leak is bounded by the number of enable calls a process makes
+// (a handful), each a few dozen bytes, and it matches this file's existing never-destroyed policy
+// for State itself.
+struct ChannelSnapshot {
+  bool all = false;
+  std::vector<std::string> names;
+};
+std::atomic<const ChannelSnapshot*> g_snapshot{nullptr};
+
+// Publish the current set as a new immutable snapshot. MUST be called under state().mutex, and is
+// called from exactly one place (refresh_any_enabled_locked) so no mutation can forget to.
+void publish_snapshot_locked() {
+  auto* snap = new ChannelSnapshot();
+  snap->all = state().all_channels;
+  snap->names.assign(state().channels.begin(), state().channels.end());
+  // Release: everything written into *snap must be visible to a reader that acquires this pointer.
+  g_snapshot.store(snap, std::memory_order_release);
+}
+
+// The lock-free answer. A null snapshot means nothing has ever been loaded, which cannot mean
+// "enabled" — the callers below load first, so this returns false only when the set is genuinely
+// unknown-and-empty.
+bool enabled_in_snapshot(std::string_view channel) {
+  const ChannelSnapshot* snap = g_snapshot.load(std::memory_order_acquire);
+  if (!snap) return false;
+  if (snap->all) return true;
+  for (const std::string& name : snap->names)
+    if (name == channel) return true;
+  return false;
+}
+
 // Recompute the fast-path flag. MUST be called under state().mutex by anything that changes the set.
 //
 // Also bumps the generation every Channel handle stamps itself against. Anything that can change
@@ -71,19 +120,17 @@ std::atomic<bool> g_loaded{false};
 void refresh_any_enabled_locked() {
   g_any_enabled.store(state().all_channels || !state().channels.empty(), std::memory_order_relaxed);
   g_loaded.store(state().channels_loaded, std::memory_order_relaxed);
+  publish_snapshot_locked();
   detail::g_channel_generation.store(
       detail::g_channel_generation.load(std::memory_order_relaxed) + 1, std::memory_order_relaxed);
 }
 
 // Answer for one name, with the set already loaded. Caller holds state().mutex.
 bool channel_enabled_locked(std::string_view channel) {
-  State& st = state();
-  if (st.all_channels) return true;
-  std::string key(channel);
-  if (auto it = st.channel_cache.find(key); it != st.channel_cache.end()) return it->second;
-  const bool on = st.channels.count(key) != 0;
-  st.channel_cache.emplace(std::move(key), on);
-  return on;
+  // Reads the SAME snapshot the lock-free path does, rather than a second structure that has to be
+  // kept in agreement with it. The mutex is already held by the caller, and the snapshot is
+  // republished under it by every mutation, so what this sees is current by construction.
+  return enabled_in_snapshot(channel);
 }
 
 void load_channels_locked() {
@@ -173,9 +220,16 @@ bool channel_enabled(std::string_view channel) {
   // No lock, no allocation, no hash: once the set is known to be empty, nothing can be enabled.
   if (g_loaded.load(std::memory_order_relaxed) && !g_any_enabled.load(std::memory_order_relaxed))
     return false;
-  std::lock_guard lock(state().mutex);
-  load_channels_locked();
-  return channel_enabled_locked(channel);
+  // Channels ARE enabled, and this one may not be. Still no lock and no allocation: the snapshot
+  // answers it. This is the path that used to cost 18.9 ns and 6.4% of a profiling run.
+  if (g_loaded.load(std::memory_order_relaxed)) return enabled_in_snapshot(channel);
+  // First call only: nothing has read the environment yet. Load it, which publishes a snapshot, and
+  // then answer from that snapshot like everyone else.
+  {
+    std::lock_guard lock(state().mutex);
+    load_channels_locked();
+  }
+  return enabled_in_snapshot(channel);
 }
 
 void rearm_channels_from_env() {
@@ -184,7 +238,6 @@ void rearm_channels_from_env() {
   if (!state().channels_loaded) return;    // nothing loaded yet; the next call reads the new name
   state().channels.clear();
   state().all_channels = false;
-  state().channel_cache.clear();
   state().channels_loaded = false;
   refresh_any_enabled_locked();            // g_loaded goes false: the fast path re-consults on the
                                            // next call, and every Channel handle re-resolves
@@ -215,7 +268,6 @@ void enable_channels(std::string_view list) {
   std::lock_guard lock(state().mutex);
   state().channels.clear();
   state().all_channels = false;
-  state().channel_cache.clear();
   state().channels_loaded = true;    // an explicit call wins over the environment
   state().channels_explicit = true;  // ...and keeps winning across a later re-arm
   std::string text(list);
@@ -241,7 +293,6 @@ void enable_channel(std::string_view channel, bool on) {
   std::string key(channel);
   if (on) state().channels.insert(key);
   else    state().channels.erase(key);
-  state().channel_cache[key] = on;
   refresh_any_enabled_locked();
 }
 
