@@ -6,12 +6,6 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
-if(NOT CMAKE_CXX_COMPILER_ID MATCHES "Clang|GNU")
-  message(WARNING
-    "Lucent is developed and tested with Clang; ${CMAKE_CXX_COMPILER_ID} has not been tested. "
-    "Proceeding because the public requirement is a conforming C++20 toolchain.")
-endif()
-
 add_library(lucent STATIC
   src/config.cpp
   src/http.cpp
