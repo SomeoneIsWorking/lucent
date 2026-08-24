@@ -2,6 +2,7 @@
 
 Lucent is a dependency-free C++20 infrastructure library. Each public header has one cohesive
 implementation owner; consumers compose the pieces and retain all application-specific policy.
+Clang is the verification toolchain; compatible GCC and AppleClang consumers are accepted.
 
 | Subsystem | Status | Where | Gap/next |
 |---|---|---|---|
