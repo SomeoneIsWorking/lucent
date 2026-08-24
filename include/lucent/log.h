@@ -5,8 +5,9 @@
 //     lucent::error("boot", "cannot resolve {}", path);
 //     lucent::debug("gpu",  "prim {} at ({}, {})", i, x, y);   // only when the channel is on
 //
-// Output is `[channel] message`, one line per call — the newline is added for you, and message text
-// should not contain the channel name or a trailing newline.
+// Output is `[YYYY-MM-DDTHH:MM:SS.mmmZ] [channel] message`, one UTC-timestamped line per call — the
+// newline is added for you, and message text should not contain the channel name or a trailing
+// newline.
 //
 // THE RULE THIS HEADER EXISTS TO ENFORCE: pick by AUDIENCE, not by taste.
 //   * Something a normal run should print  -> info / warn / error. Always emitted.
@@ -172,8 +173,8 @@ void enable_channel(std::string_view channel, bool on = true);
 
 // ── Where output goes ───────────────────────────────────────────────────────────────────────────
 // By default: LUCENT_LOG_FILE if set (appended, line-buffered), otherwise stderr. Installing a sink
-// replaces that — the sink receives the FULLY FORMATTED line including the "[channel] " prefix,
-// minus the trailing newline. Passing nullptr restores the default.
+// replaces that — the sink receives the FULLY FORMATTED line including the UTC timestamp and
+// "[channel] " prefix, minus the trailing newline. Passing nullptr restores the default.
 using Sink = std::function<void(Level, std::string_view line)>;
 void set_sink(Sink sink);
 

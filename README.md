@@ -41,9 +41,9 @@ a control channel, not a general web framework: one request per connection, no r
 keep-alive, or chunked transfer encoding.
 
 ```
-[boot] loaded assets/main.bin (716800 bytes)
-[cd:warn] assets/extra.bin missing — extracting from disc
-[boot:error] cannot resolve assets/missing.bin
+[2026-08-25T15:42:17.083Z] [boot] loaded assets/main.bin (716800 bytes)
+[2026-08-25T15:42:17.084Z] [cd:warn] assets/extra.bin missing — extracting from disc
+[2026-08-25T15:42:17.084Z] [boot:error] cannot resolve assets/missing.bin
 ```
 
 ## Why
@@ -150,7 +150,9 @@ present-but-empty to `false`; use `present` when you need to tell "unset" from "
 ## Where output goes
 
 By default stderr, or a file if `LUCENT_LOG_FILE` is set (appended, line-buffered so `tail -f` works
-and a crash does not swallow the last lines).
+and a crash does not swallow the last lines). Every emitted record begins with a millisecond UTC
+timestamp in ISO 8601 form, so output from different hosts can be correlated without guessing their
+local time zones.
 
 In tests, install a sink and assert on real output:
 
@@ -158,7 +160,7 @@ In tests, install a sink and assert on real output:
 std::vector<std::string> lines;
 lucent::set_sink([&](lucent::Level, std::string_view line) { lines.emplace_back(line); });
 lucent::info("cd", "loaded {} bytes", 12);
-assert(lines[0] == "[cd] loaded 12 bytes");
+assert(lines[0].ends_with("Z] [cd] loaded 12 bytes"));
 lucent::set_sink(nullptr);   // restore the default
 ```
 

@@ -5,6 +5,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <cctype>
 #include <cstdlib>
 #include <iostream>
 #include <string>
@@ -54,6 +55,27 @@ struct Capture {
   }
   ~Capture() { lucent::set_sink(nullptr); }
 };
+
+std::string without_timestamp(std::string_view line) {
+  std::size_t leading_newlines = 0;
+  while (leading_newlines < line.size() && line[leading_newlines] == '\n')
+    ++leading_newlines;
+
+  const std::string_view stamped = line.substr(leading_newlines);
+  constexpr std::size_t kTimestampLength = 27;
+  const bool shape = stamped.size() >= kTimestampLength && stamped[0] == '[' && stamped[5] == '-' &&
+                     stamped[8] == '-' && stamped[11] == 'T' && stamped[14] == ':' &&
+                     stamped[17] == ':' && stamped[20] == '.' && stamped[24] == 'Z' &&
+                     stamped[25] == ']' && stamped[26] == ' ';
+  bool digits = shape;
+  for (std::size_t i :
+       {1u, 2u, 3u, 4u, 6u, 7u, 9u, 10u, 12u, 13u, 15u, 16u, 18u, 19u, 21u, 22u, 23u})
+    digits = digits && std::isdigit(static_cast<unsigned char>(stamped[i]));
+  CHECK(shape && digits);
+  if (!shape || !digits)
+    return std::string(line);
+  return std::string(leading_newlines, '\n') + std::string(stamped.substr(kTimestampLength));
+}
 
 void test_config_flag() {
   lucent::config::set_prefix("");
@@ -108,9 +130,9 @@ void test_levels_and_prefixing() {
   lucent::warn("cd", "odd size {}", 3);
   lucent::error("boot", "cannot open {}", "x.bin");
   CHECK_EQ(cap.lines.size(), std::size_t(3));
-  CHECK_EQ(cap.lines[0], std::string("[cd] loaded 12 bytes"));
-  CHECK_EQ(cap.lines[1], std::string("[cd:warn] odd size 3"));
-  CHECK_EQ(cap.lines[2], std::string("[boot:error] cannot open x.bin"));
+  CHECK_EQ(without_timestamp(cap.lines[0]), std::string("[cd] loaded 12 bytes"));
+  CHECK_EQ(without_timestamp(cap.lines[1]), std::string("[cd:warn] odd size 3"));
+  CHECK_EQ(without_timestamp(cap.lines[2]), std::string("[boot:error] cannot open x.bin"));
 }
 
 void test_debug_is_gated() {
@@ -123,7 +145,7 @@ void test_debug_is_gated() {
   lucent::debug("gpu", "prim {}", 5);
   lucent::debug("cd", "hidden");
   CHECK_EQ(cap.lines.size(), std::size_t(1));
-  CHECK_EQ(cap.lines[0], std::string("[gpu] prim 5"));
+  CHECK_EQ(without_timestamp(cap.lines[0]), std::string("[gpu] prim 5"));
 
   lucent::enable_channels("all");
   lucent::debug("anything", "now visible");
@@ -151,7 +173,7 @@ void test_leading_newlines_precede_the_tag() {
   Capture cap;
   lucent::info("sbs", "\n\n*** DIVERGENCE ***");
   CHECK_EQ(cap.lines.size(), std::size_t(1));
-  CHECK_EQ(cap.lines[0], std::string("\n\n[sbs] *** DIVERGENCE ***"));
+  CHECK_EQ(without_timestamp(cap.lines[0]), std::string("\n\n[sbs] *** DIVERGENCE ***"));
 }
 
 void test_line_builder() {
@@ -165,7 +187,7 @@ void test_line_builder() {
   row.flush(lucent::Level::Info, "mem");
   CHECK(row.empty()); // flush clears
   CHECK_EQ(cap.lines.size(), std::size_t(1));
-  CHECK_EQ(cap.lines[0], std::string("[mem]   800a6490: 00 10 20"));
+  CHECK_EQ(without_timestamp(cap.lines[0]), std::string("[mem]   800a6490: 00 10 20"));
 
   // An empty line emits nothing, so a loop that produced no pieces stays silent.
   lucent::Line none;
@@ -180,8 +202,9 @@ void test_line_truncates_safely() {
     row.add("{}", 'x');
   row.flush(lucent::Level::Info, "big");
   CHECK_EQ(cap.lines.size(), std::size_t(1));
-  CHECK(cap.lines[0].size() <= lucent::Line::kMaxLength + 16);
-  CHECK(cap.lines[0].ends_with("..."));
+  const std::string emitted = without_timestamp(cap.lines[0]);
+  CHECK(emitted.size() <= lucent::Line::kMaxLength + 16);
+  CHECK(emitted.ends_with("..."));
 }
 
 void test_line_flush_debug_is_gated() {
@@ -265,14 +288,14 @@ void test_debug_overload_taking_a_channel() {
   lucent::enable_channels("otattr");
   lucent::debug(ch, "store {:08X}", 0x800a6490u);
   CHECK_EQ(cap.lines.size(), std::size_t(1));
-  CHECK_EQ(cap.lines[0], std::string("[otattr] store 800A6490"));
+  CHECK_EQ(without_timestamp(cap.lines[0]), std::string("[otattr] store 800A6490"));
 
   // The other levels take a Channel too, so a migrated call site never has to keep the literal
   // around just to say info().
   lucent::info(ch, "ready");
-  CHECK_EQ(cap.lines.back(), std::string("[otattr] ready"));
+  CHECK_EQ(without_timestamp(cap.lines.back()), std::string("[otattr] ready"));
   lucent::warn(ch, "odd");
-  CHECK_EQ(cap.lines.back(), std::string("[otattr:warn] odd"));
+  CHECK_EQ(without_timestamp(cap.lines.back()), std::string("[otattr:warn] odd"));
   lucent::enable_channels("");
 }
 
@@ -291,7 +314,7 @@ void test_line_flush_debug_takes_a_channel() {
   row2.add("shown");
   row2.flush_debug(ch);
   CHECK_EQ(cap.lines.size(), std::size_t(1));
-  CHECK_EQ(cap.lines[0], std::string("[rows] shown"));
+  CHECK_EQ(without_timestamp(cap.lines[0]), std::string("[rows] shown"));
   lucent::enable_channels("");
 }
 

@@ -3,7 +3,9 @@
 #include "lucent/config.h"
 
 #include <atomic>
+#include <chrono>
 #include <cstdio>
+#include <ctime>
 #include <mutex>
 #include <string>
 #include <unordered_set>
@@ -202,6 +204,31 @@ std::string tag_for(Level level, std::string_view channel) {
   }
 }
 
+// UTC is deliberate: logs from machines in different time zones remain directly comparable, and
+// the trailing Z makes that contract explicit rather than leaving an unlabeled local time. Keep
+// the formatter here, at the single sink boundary, so stderr, files, and installed sinks cannot
+// drift into different timestamp schemes.
+std::string timestamp_now() {
+  const auto now = std::chrono::system_clock::now();
+  const auto since_epoch = now.time_since_epoch();
+  const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(since_epoch);
+  const auto milliseconds =
+      std::chrono::duration_cast<std::chrono::milliseconds>(since_epoch - seconds).count();
+  const std::time_t epoch_seconds = std::chrono::system_clock::to_time_t(now);
+  std::tm utc{};
+#ifdef _WIN32
+  gmtime_s(&utc, &epoch_seconds);
+#else
+  gmtime_r(&epoch_seconds, &utc);
+#endif
+
+  char text[32];
+  std::snprintf(text, sizeof(text), "[%04d-%02d-%02dT%02d:%02d:%02d.%03lldZ] ", utc.tm_year + 1900,
+                utc.tm_mon + 1, utc.tm_mday, utc.tm_hour, utc.tm_min, utc.tm_sec,
+                static_cast<long long>(milliseconds));
+  return text;
+}
+
 } // namespace
 
 void log(Level level, std::string_view channel, std::string_view message) {
@@ -213,8 +240,9 @@ void log(Level level, std::string_view channel, std::string_view message) {
   const std::string_view body = message.substr(lead);
 
   std::string line;
-  line.reserve(body.size() + channel.size() + 8);
+  line.reserve(body.size() + channel.size() + 36);
   line.append(lead, '\n');
+  line.append(timestamp_now());
   line.push_back('[');
   line.append(tag_for(level, channel));
   line.append("] ");

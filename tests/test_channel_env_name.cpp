@@ -86,7 +86,7 @@ void test_the_first_log_call_in_the_process_honours_the_compiled_in_env_name() {
 
   CHECK_EQ(g_early_lines.size(), std::size_t(1));
   if (g_early_lines.size() == 1)
-    CHECK_EQ(g_early_lines[0], std::string("[early] pre-main line on an enabled channel"));
+    CHECK(g_early_lines[0].ends_with("Z] [early] pre-main line on an enabled channel"));
   CHECK_EQ(g_early_done, 0);
 }
 
@@ -112,7 +112,7 @@ void test_the_environment_is_re_read_when_the_name_changes_late() {
   lucent::debug("early", "the old variable no longer names this");
   CHECK_EQ(lines.size(), std::size_t(1));
   if (lines.size() == 1)
-    CHECK_EQ(lines[0], std::string("[late] picked up after the set was already loaded"));
+    CHECK(lines[0].ends_with("Z] [late] picked up after the set was already loaded"));
 
   lucent::config::set_channel_env("MYAPP_DEBUG");
   lucent::set_sink(nullptr);
@@ -128,7 +128,7 @@ void test_an_explicit_enable_channels_outranks_a_later_re_read() {
   lucent::debug("early", "must not come back");
   CHECK_EQ(lines.size(), std::size_t(1));
   if (lines.size() == 1)
-    CHECK_EQ(lines[0], std::string("[chosen-in-code] still on"));
+    CHECK(lines[0].ends_with("Z] [chosen-in-code] still on"));
 
   lucent::enable_channels("");
   lucent::set_sink(nullptr);
