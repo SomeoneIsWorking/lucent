@@ -6,7 +6,7 @@ implementation owner; consumers compose the pieces and retain all application-sp
 | Subsystem | Status | Where | Gap/next |
 |---|---|---|---|
 | Configuration | real, tested | `include/lucent/config.h`, `src/config.cpp` | Cached environment configuration only; no file format |
-| Logging | real, tested | `include/lucent/log.h`, `src/log.cpp` | Text sinks only |
+| Logging | real, tested | `include/lucent/log.h`, `src/log.cpp` | Thread-safe text sinks; every stderr, file, and installed-sink record carries a millisecond UTC ISO 8601 timestamp |
 | Loopback HTTP | real, tested | `include/lucent/http.h`, `src/http.cpp` | One request per connection; no TLS, remote binding, keep-alive, or chunked transfer by design |
 | Verification | real | `tests/`, `tools/check_cpp_quality.sh`, `tools/check_source_structure.py` | Run through CTest in top-level builds |
 
