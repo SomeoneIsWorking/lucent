@@ -6,8 +6,11 @@
 #include <atomic>
 #include <chrono>
 #include <cctype>
+#include <condition_variable>
 #include <cstdlib>
+#include <future>
 #include <iostream>
+#include <mutex>
 #include <string>
 #include <thread>
 #include <vector>
@@ -411,20 +414,53 @@ void test_channel_gate_is_measurably_cheaper() {
             << "  debug(string_view, ...) " << dsv_ns << "\n"
             << "  debug(Channel, ...)     " << dch_ns << "   (" << (dsv_ns / dch_ns) << "x)\n";
 
-  // THE CONTRACT INVERTED, 2026-08-20. This test used to assert `ch_ns * 2.0 < sv_ns` — it
-  // DOCUMENTED the string-keyed form being at least twice as slow, and passed happily while it was
-  // 29x slower (18.9 ns vs 0.65 ns, measured here before the fix). That gap was not academic: with
-  // one channel enabled it cost the Tomba!2 port 6.4% of total run time, because a string-keyed
-  // gate took the state mutex, built a std::string and hashed it on EVERY call site, every store.
-  //
-  // Both forms now answer from the same lock-free immutable snapshot, so what this asserts is that
-  // the string-keyed form stays in the SAME ORDER OF MAGNITUDE as the interned handle. If anyone
-  // reintroduces a lock, an allocation or a hash on this path, the ratio blows past 8x and this
-  // fails — which is the negative this test exists to be able to print.
+  // Keep the measurement visible, but do not turn scheduler noise into a correctness verdict. The
+  // identical binary produced 20.5x and 5.7x on consecutive runs, straddling the old 8x threshold;
+  // that gate could not distinguish the locked regression it claimed to catch. The deterministic
+  // mutex-independence test below owns that verdict now.
   std::cerr << "  ratio string/Channel    " << (sv_ns / ch_ns)
             << "  (was 29x with the locked map)\n";
-  CHECK(sv_ns < ch_ns * 8.0);
-  CHECK(dsv_ns < dch_ns * 8.0);
+  lucent::enable_channels("");
+}
+
+void test_string_keyed_gate_does_not_wait_for_the_logger_mutex() {
+  lucent::enable_channels("gpu");
+
+  std::mutex mutex;
+  std::condition_variable changed;
+  bool sink_entered = false;
+  bool release_sink = false;
+  lucent::set_sink([&](lucent::Level, std::string_view) {
+    std::unique_lock lock(mutex);
+    sink_entered = true;
+    changed.notify_all();
+    changed.wait(lock, [&] { return release_sink; });
+  });
+
+  std::thread writer([] { lucent::info("hold", "logger mutex held by the sink"); });
+  {
+    std::unique_lock lock(mutex);
+    changed.wait(lock, [&] { return sink_entered; });
+  }
+
+  std::promise<void> gate_started;
+  auto gate = std::async(std::launch::async, [&] {
+    gate_started.set_value();
+    return lucent::channel_on("otattr");
+  });
+  gate_started.get_future().wait();
+  const bool completed_without_logger =
+      gate.wait_for(std::chrono::seconds(1)) == std::future_status::ready;
+  CHECK(completed_without_logger);
+
+  {
+    std::lock_guard lock(mutex);
+    release_sink = true;
+  }
+  changed.notify_all();
+  writer.join();
+  CHECK(!gate.get());
+  lucent::set_sink(nullptr);
   lucent::enable_channels("");
 }
 
@@ -487,6 +523,7 @@ int main() {
   test_line_flush_debug_takes_a_channel();
   test_channel_tracks_changes_across_threads();
   test_channel_gate_is_measurably_cheaper();
+  test_string_keyed_gate_does_not_wait_for_the_logger_mutex();
   test_string_keyed_gate_tracks_the_set();
 
   if (g_failures == 0)

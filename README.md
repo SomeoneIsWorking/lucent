@@ -202,7 +202,9 @@ add_subdirectory(external/lucent)
 target_link_libraries(myapp PRIVATE lucent::lucent)
 ```
 
-Requires C++20 (for `std::format`). Tests only build when lucent is the top-level project:
+Requires a conforming C++20 compiler (for `std::format`). Development verification uses Clang, but
+Lucent does not reject compatible GCC or AppleClang consumer toolchains. Tests only build when
+lucent is the top-level project:
 
 ```sh
 cmake -S . -B build && cmake --build build && ./build/lucent_tests
