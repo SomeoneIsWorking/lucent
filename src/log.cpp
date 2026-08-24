@@ -222,10 +222,22 @@ std::string timestamp_now() {
   gmtime_r(&epoch_seconds, &utc);
 #endif
 
-  char text[32];
-  std::snprintf(text, sizeof(text), "[%04d-%02d-%02dT%02d:%02d:%02d.%03lldZ] ", utc.tm_year + 1900,
-                utc.tm_mon + 1, utc.tm_mday, utc.tm_hour, utc.tm_min, utc.tm_sec,
-                static_cast<long long>(milliseconds));
+  char text[] = "[0000-00-00T00:00:00.000Z] ";
+  const auto write_two_digits = [&text](std::size_t offset, int value) {
+    text[offset] = static_cast<char>('0' + value / 10 % 10);
+    text[offset + 1] = static_cast<char>('0' + value % 10);
+  };
+  const int year = utc.tm_year + 1900;
+  text[1] = static_cast<char>('0' + year / 1000 % 10);
+  text[2] = static_cast<char>('0' + year / 100 % 10);
+  write_two_digits(3, year);
+  write_two_digits(6, utc.tm_mon + 1);
+  write_two_digits(9, utc.tm_mday);
+  write_two_digits(12, utc.tm_hour);
+  write_two_digits(15, utc.tm_min);
+  write_two_digits(18, utc.tm_sec);
+  write_two_digits(21, static_cast<int>(milliseconds / 10));
+  text[23] = static_cast<char>('0' + milliseconds % 10);
   return text;
 }
 
