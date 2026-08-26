@@ -25,6 +25,15 @@
 #define MSG_NOSIGNAL 0
 #endif
 
+// Consumers may build with -fno-exceptions (PCSX2 does). Handler dispatch and
+// thread creation degrade to direct calls; without exceptions a failure there
+// terminates the process either way.
+#if defined(__cpp_exceptions) || defined(__EXCEPTIONS) || defined(_CPPUNWIND)
+#define LUCENT_EXCEPTIONS 1
+#else
+#define LUCENT_EXCEPTIONS 0
+#endif
+
 namespace lucent::http {
 namespace {
 
@@ -288,6 +297,7 @@ void serve_client(const std::shared_ptr<detail::ServerState> &state, int client)
     return;
   }
 
+#if LUCENT_EXCEPTIONS
   try {
     send_response(client, state->handler(request));
   } catch (const std::exception &exception) {
@@ -297,6 +307,9 @@ void serve_client(const std::shared_ptr<detail::ServerState> &state, int client)
     lucent::error("http", "request handler threw an unknown exception");
     send_response(client, error_response(500, "Internal Server Error", "request handler failed"));
   }
+#else
+  send_response(client, state->handler(request));
+#endif
   finish_client(state, client);
 }
 
@@ -331,6 +344,7 @@ void accept_connections(const std::shared_ptr<detail::ServerState> &state) {
       close_socket(client);
       continue;
     }
+#if LUCENT_EXCEPTIONS
     try {
       std::thread(serve_client, state, client).detach();
     } catch (const std::system_error &error) {
@@ -339,6 +353,9 @@ void accept_connections(const std::shared_ptr<detail::ServerState> &state) {
                     error_response(503, "Service Unavailable", "could not start request worker"));
       finish_client(state, client);
     }
+#else
+    std::thread(serve_client, state, client).detach();
+#endif
   }
 }
 
@@ -438,6 +455,7 @@ bool Server::start() {
   state_->listener.store(listener, std::memory_order_release);
   state_->bound_port.store(ntohs(address.sin_port), std::memory_order_release);
   state_->running.store(true, std::memory_order_release);
+#if LUCENT_EXCEPTIONS
   try {
     state_->accept_thread = std::thread(accept_connections, state_);
   } catch (const std::system_error &error) {
@@ -448,6 +466,9 @@ bool Server::start() {
     lucent::error("http", "could not start listener thread: {}", error.what());
     return false;
   }
+#else
+  state_->accept_thread = std::thread(accept_connections, state_);
+#endif
   lucent::info("http", "loopback server listening on http://127.0.0.1:{}", port());
   return true;
 }
