@@ -502,6 +502,18 @@ void test_string_keyed_gate_tracks_the_set() {
   CHECK(!ch);
 }
 
+void test_format_builds_a_string_without_emitting() {
+  // format() is the composition helper behind conditional fragments: it must produce identical
+  // text to the level helpers and must NOT touch the sink or any channel state.
+  const std::string s = lucent::format("aux=0x{:08X} n={}", 0x1234u, 7);
+  CHECK(s == "aux=0x00001234 n=7");
+
+  lucent::enable_channels("quiet");
+  const std::string before = lucent::format("plain");
+  CHECK(before == "plain");
+  lucent::enable_channels("");
+}
+
 } // namespace
 
 int main() {
@@ -525,6 +537,7 @@ int main() {
   test_channel_gate_is_measurably_cheaper();
   test_string_keyed_gate_does_not_wait_for_the_logger_mutex();
   test_string_keyed_gate_tracks_the_set();
+  test_format_builds_a_string_without_emitting();
 
   if (g_failures == 0)
     std::cout << "all tests passed\n";

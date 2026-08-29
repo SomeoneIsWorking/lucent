@@ -124,6 +124,15 @@ private:
 // level at runtime.
 void log(Level level, std::string_view channel, std::string_view message);
 
+// Format a message WITHOUT emitting it — the same std::format semantics as the level helpers, for
+// the caller that composes fragments conditionally (a line whose middle exists only when a field is
+// meaningful) and then hands the whole thing to log()/info(). Returning the string keeps those call
+// sites inside lucent's formatting dialect instead of reaching for snprintf alongside it.
+template <class... Args>
+std::string format(std::format_string<Args...> fmt, Args&&... args) {
+  return std::format(fmt, std::forward<Args>(args)...);
+}
+
 namespace detail {
 // The gate behind debug(). Free when no channel is enabled anywhere; a hashed lookup under a mutex
 // once any channel is on — see the COST note at the top, and use a Channel on a hot path. Kept out
