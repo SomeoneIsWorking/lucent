@@ -10,6 +10,7 @@ add_library(lucent STATIC
   src/config.cpp
   src/http.cpp
   src/log.cpp
+  src/platform.cpp
   src/touch.cpp
 )
 add_library(lucent::lucent ALIAS lucent)
@@ -75,6 +76,10 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     add_executable(lucent_touch_tests tests/test_touch.cpp)
     target_link_libraries(lucent_touch_tests PRIVATE lucent)
     add_test(NAME lucent_touch_tests COMMAND lucent_touch_tests)
+
+    add_executable(lucent_platform_tests tests/test_platform.cpp)
+    target_link_libraries(lucent_platform_tests PRIVATE lucent)
+    add_test(NAME lucent_platform_tests COMMAND lucent_platform_tests)
 
     add_executable(lucent_zip_tests tests/test_zip.cpp)
     target_link_libraries(lucent_zip_tests PRIVATE lucent::zip)
