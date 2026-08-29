@@ -23,6 +23,7 @@ target_include_directories(lucent_zip PUBLIC
   $<INSTALL_INTERFACE:include>
 )
 target_compile_features(lucent_zip PUBLIC cxx_std_20)
+set_target_properties(lucent_zip PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 find_package(Threads REQUIRED)
 target_link_libraries(lucent PUBLIC Threads::Threads)
