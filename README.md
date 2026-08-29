@@ -147,6 +147,19 @@ borrowed, not copied: pass a string literal or something that outlives the `Chan
 Each name is read from the environment once and cached. `flag` deliberately collapses
 present-but-empty to `false`; use `present` when you need to tell "unset" from "set to nothing".
 
+## Platform user data
+
+`lucent::platform::user_data_directory("myapp")` resolves the conventional private configuration
+directory: `XDG_CONFIG_HOME` or `$HOME/.config` on Linux, `$HOME/Library/Application Support` on
+macOS, and `APPDATA` on Windows. The application name is validated as one path component. Call
+`ensure_user_data_directory` after resolution to create it with owner-only permissions where the
+platform supports them.
+
+Android shells have no environment fallback. An Activity supplies its absolute app-private root
+through `lucent_platform_set_user_data_directory()` from `platform_c.h`; the C wrappers are for
+applications whose entry point is written in C. Lucent does not own document pickers, URI copying,
+or application-specific install validation.
+
 ## Where output goes
 
 By default stderr, or a file if `LUCENT_LOG_FILE` is set (appended, line-buffered so `tail -f` works
