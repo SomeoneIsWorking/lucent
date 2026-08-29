@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <fstream>
 #include <iterator>
+#include <limits>
 #include <vector>
 
 #include <zlib.h>
@@ -44,7 +45,7 @@ bool safe_name(std::string_view name) {
     const std::size_t end = name.find('/', start);
     const std::string_view part =
         name.substr(start, end == std::string_view::npos ? name.size() - start : end - start);
-    if (part.empty() || part == "." || part == "..")
+    if (part.empty() || part == "." || part == ".." || part.find(':') != std::string_view::npos)
       return false;
     if (end == std::string_view::npos)
       break;
@@ -57,6 +58,7 @@ struct Entry {
   std::string name;
   std::uint16_t flags = 0;
   std::uint16_t method = 0;
+  std::uint32_t crc = 0;
   std::uint32_t compressed_size = 0;
   std::uint32_t uncompressed_size = 0;
   std::uint32_t local_offset = 0;
@@ -124,9 +126,16 @@ bool entries(const Bytes &bytes, std::vector<Entry> &out, std::string &error) {
     entry.name.assign(reinterpret_cast<const char *>(&bytes[offset + 46]), name_size);
     entry.flags = u16(bytes, offset + 8);
     entry.method = u16(bytes, offset + 10);
+    entry.crc = u32(bytes, offset + 16);
     entry.compressed_size = u32(bytes, offset + 20);
     entry.uncompressed_size = u32(bytes, offset + 24);
     entry.local_offset = u32(bytes, offset + 42);
+    if (entry.compressed_size == std::numeric_limits<std::uint32_t>::max() ||
+        entry.uncompressed_size == std::numeric_limits<std::uint32_t>::max() ||
+        entry.local_offset == std::numeric_limits<std::uint32_t>::max()) {
+      error = "ZIP64 archive entries are not supported";
+      return false;
+    }
     const bool directory = !entry.name.empty() && entry.name.back() == '/';
     const std::string_view checked_name =
         directory ? std::string_view(entry.name).substr(0, entry.name.size() - 1)
@@ -185,21 +194,34 @@ bool extract_entry(const Bytes &bytes, const Entry &entry, const std::filesystem
     error = "could not create extracted archive directory";
     return false;
   }
-  std::ofstream output(path, std::ios::binary | std::ios::trunc);
-  if (!output) {
-    error = "could not create extracted archive file";
-    return false;
-  }
+  std::vector<std::uint8_t> unpacked;
+  const std::uint8_t *output_data = &bytes[data_offset];
+  std::size_t output_size = entry.uncompressed_size;
   if (entry.method == 0) {
-    output.write(reinterpret_cast<const char *>(&bytes[data_offset]), entry.uncompressed_size);
+    if (crc32(0, output_data, output_size) != entry.crc) {
+      error = "archive entry failed CRC validation";
+      return false;
+    }
   } else {
-    std::vector<std::uint8_t> unpacked(entry.uncompressed_size);
+    unpacked.resize(entry.uncompressed_size);
     if (!inflate_raw(&bytes[data_offset], entry.compressed_size, unpacked.data(),
                      unpacked.size())) {
       error = "archive entry failed deflate decompression";
       return false;
     }
-    output.write(reinterpret_cast<const char *>(unpacked.data()), unpacked.size());
+    output_data = unpacked.data();
+    if (crc32(0, output_data, unpacked.size()) != entry.crc) {
+      error = "archive entry failed CRC validation";
+      return false;
+    }
+  }
+  std::ofstream output(path, std::ios::binary | std::ios::trunc);
+  if (!output) {
+    error = "could not create extracted archive file";
+    return false;
+  }
+  if (output_size != 0) {
+    output.write(reinterpret_cast<const char *>(output_data), output_size);
   }
   if (!output) {
     error = "could not write extracted archive file";
