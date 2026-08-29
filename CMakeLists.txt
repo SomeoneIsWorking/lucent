@@ -33,6 +33,7 @@ target_include_directories(lucent PUBLIC
   $<INSTALL_INTERFACE:include>
 )
 target_compile_features(lucent PUBLIC cxx_std_20)
+set_target_properties(lucent PROPERTIES POSITION_INDEPENDENT_CODE ON)
 
 # The two variables lucent reads for ITSELF — which debug channels are on, and where output goes.
 # A consumer whose users already type another name sets these before add_subdirectory/FetchContent:
