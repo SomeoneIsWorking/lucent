@@ -10,8 +10,19 @@ add_library(lucent STATIC
   src/config.cpp
   src/http.cpp
   src/log.cpp
+  src/touch.cpp
 )
 add_library(lucent::lucent ALIAS lucent)
+
+find_package(ZLIB REQUIRED)
+add_library(lucent_zip STATIC src/zip.cpp)
+add_library(lucent::zip ALIAS lucent_zip)
+target_link_libraries(lucent_zip PUBLIC ZLIB::ZLIB)
+target_include_directories(lucent_zip PUBLIC
+  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+  $<INSTALL_INTERFACE:include>
+)
+target_compile_features(lucent_zip PUBLIC cxx_std_20)
 
 find_package(Threads REQUIRED)
 target_link_libraries(lucent PUBLIC Threads::Threads)
@@ -59,6 +70,14 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     target_link_libraries(lucent_http_tests PRIVATE lucent Threads::Threads)
     add_test(NAME lucent_http_tests COMMAND lucent_http_tests)
 
+    add_executable(lucent_touch_tests tests/test_touch.cpp)
+    target_link_libraries(lucent_touch_tests PRIVATE lucent)
+    add_test(NAME lucent_touch_tests COMMAND lucent_touch_tests)
+
+    add_executable(lucent_zip_tests tests/test_zip.cpp)
+    target_link_libraries(lucent_zip_tests PRIVATE lucent::zip)
+    add_test(NAME lucent_zip_tests COMMAND lucent_zip_tests)
+
     # A SECOND binary, compiled from lucent's sources with the consumer-name macros set, because
     # that is the thing under test: `lucent` itself is built with the defaults, and a compile-time
     # name cannot be exercised by linking against a library that did not get it.
@@ -86,6 +105,8 @@ endif()
 
 include(GNUInstallDirs)
 install(TARGETS lucent EXPORT lucentTargets
+        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+install(TARGETS lucent_zip EXPORT lucentTargets
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
 install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(EXPORT lucentTargets
