@@ -16,6 +16,7 @@ namespace {
 std::mutex override_mutex;
 std::filesystem::path app_private_directory;
 
+#if !defined(__ANDROID__)
 bool valid_application_name(std::string_view name) {
   if (name.empty() || name == "." || name == "..")
     return false;
@@ -36,6 +37,7 @@ std::optional<std::filesystem::path> child_directory(std::string_view base, std:
     return std::nullopt;
   return root / std::filesystem::path{name};
 }
+#endif
 
 std::string_view environment_value(const char *name) {
   const char *value = std::getenv(name);
