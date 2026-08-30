@@ -215,9 +215,17 @@ add_subdirectory(external/lucent)
 target_link_libraries(myapp PRIVATE lucent::lucent)
 ```
 
-Requires a conforming C++20 compiler (for `std::format`). Development verification uses Clang, but
-Lucent does not reject compatible GCC or AppleClang consumer toolchains. Tests only build when
-lucent is the top-level project:
+The zlib-backed `lucent::zip` target is built by default only when Lucent is the top-level project.
+An embedded consumer that needs it enables `LUCENT_BUILD_ZIP` before `add_subdirectory`; core-only
+consumers do not need zlib.
+
+Requires a conforming C++20 compiler. Raw `log()`, channels, sinks, HTTP, platform, and touch APIs
+do not require `std::format`; the formatted `info`/`warn`/`error`/`debug` and `Line::add` convenience
+templates are exposed when the consumer's standard library provides `<format>` and
+`__cpp_lib_format`. This keeps core consumers compatible with libstdc++ 11 without substituting a
+second formatting implementation. Development verification uses Clang, but Lucent does not reject
+compatible GCC or AppleClang consumer toolchains. Tests only build when lucent is the top-level
+project:
 
 ```sh
 cmake -S . -B build && cmake --build build && ./build/lucent_tests

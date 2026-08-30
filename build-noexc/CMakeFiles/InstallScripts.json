@@ -1,7 +1,0 @@
-{
-	"InstallScripts" : 
-	[
-		"/home/bhamil/repo/lucent/build-noexc/cmake_install.cmake"
-	],
-	"Parallel" : false
-}
