@@ -21,8 +21,10 @@ std::uint16_t u16(const Bytes &bytes, std::size_t offset) {
 }
 
 std::uint32_t u32(const Bytes &bytes, std::size_t offset) {
-  return static_cast<std::uint32_t>(bytes[offset] | (bytes[offset + 1] << 8) |
-                                    (bytes[offset + 2] << 16) | (bytes[offset + 3] << 24));
+  return static_cast<std::uint32_t>(bytes[offset]) |
+         (static_cast<std::uint32_t>(bytes[offset + 1]) << 8U) |
+         (static_cast<std::uint32_t>(bytes[offset + 2]) << 16U) |
+         (static_cast<std::uint32_t>(bytes[offset + 3]) << 24U);
 }
 
 bool has(Bytes const &bytes, std::size_t offset, std::size_t length) {
@@ -203,11 +205,15 @@ bool entries(const Bytes &bytes, std::vector<Entry> &out, const ExtractionLimits
 
 bool inflate_raw(const std::uint8_t *source, std::size_t source_size, std::uint8_t *destination,
                  std::size_t destination_size) {
+  if (source_size > std::numeric_limits<uInt>::max() ||
+      destination_size > std::numeric_limits<uInt>::max())
+    return false;
+  std::uint8_t empty_output = 0;
   z_stream stream{};
   stream.next_in = const_cast<Bytef *>(source);
   stream.avail_in = static_cast<uInt>(source_size);
-  stream.next_out = destination;
-  stream.avail_out = static_cast<uInt>(destination_size);
+  stream.next_out = destination_size == 0 ? &empty_output : destination;
+  stream.avail_out = destination_size == 0 ? 1 : static_cast<uInt>(destination_size);
   if (inflateInit2(&stream, -MAX_WBITS) != Z_OK)
     return false;
   const int result = inflate(&stream, Z_FINISH);
@@ -217,23 +223,27 @@ bool inflate_raw(const std::uint8_t *source, std::size_t source_size, std::uint8
   return complete;
 }
 
-bool extract_entry(const Bytes &bytes, const Entry &entry, const std::filesystem::path &destination,
-                   std::filesystem::path &path, std::string &error) {
-  if ((entry.flags & 1) != 0 || entry.method != 0 && entry.method != 8) {
-    error = "archive entry is encrypted or uses an unsupported compression method";
-    return false;
-  }
+bool local_data_offset(const Bytes &bytes, const Entry &entry, std::size_t &data_offset,
+                       std::string &error) {
   if (!has(bytes, entry.local_offset, 30) || u32(bytes, entry.local_offset) != 0x04034b50) {
     error = "archive local entry is invalid";
     return false;
   }
+  const std::uint16_t local_flags = u16(bytes, entry.local_offset + 6);
   const std::size_t name_size = u16(bytes, entry.local_offset + 26);
   const std::size_t extra_size = u16(bytes, entry.local_offset + 28);
-  const std::size_t data_offset = entry.local_offset + 30 + name_size + extra_size;
+  data_offset = entry.local_offset + 30 + name_size + extra_size;
+  const bool descriptor = (entry.flags & 8U) != 0;
+  const auto agrees_or_descriptor_zero = [descriptor](std::uint32_t local, std::uint32_t central) {
+    return local == central || descriptor && local == 0;
+  };
   if (!has(bytes, entry.local_offset + 30, name_size + extra_size) ||
       std::string_view(reinterpret_cast<const char *>(&bytes[entry.local_offset + 30]),
                        name_size) != entry.name ||
-      u16(bytes, entry.local_offset + 8) != entry.method) {
+      local_flags != entry.flags || u16(bytes, entry.local_offset + 8) != entry.method ||
+      !agrees_or_descriptor_zero(u32(bytes, entry.local_offset + 14), entry.crc) ||
+      !agrees_or_descriptor_zero(u32(bytes, entry.local_offset + 18), entry.compressed_size) ||
+      !agrees_or_descriptor_zero(u32(bytes, entry.local_offset + 22), entry.uncompressed_size)) {
     error = "archive local entry disagrees with its central directory";
     return false;
   }
@@ -241,6 +251,18 @@ bool extract_entry(const Bytes &bytes, const Entry &entry, const std::filesystem
     error = "archive entry data is truncated";
     return false;
   }
+  return true;
+}
+
+bool extract_entry(const Bytes &bytes, const Entry &entry, const std::filesystem::path &destination,
+                   std::filesystem::path &path, std::string &error) {
+  if ((entry.flags & 1) != 0 || entry.method != 0 && entry.method != 8) {
+    error = "archive entry is encrypted or uses an unsupported compression method";
+    return false;
+  }
+  std::size_t data_offset = 0;
+  if (!local_data_offset(bytes, entry, data_offset, error))
+    return false;
   if (entry.method == 0 && entry.compressed_size != entry.uncompressed_size) {
     error = "stored archive entry has inconsistent sizes";
     return false;
@@ -253,7 +275,7 @@ bool extract_entry(const Bytes &bytes, const Entry &entry, const std::filesystem
     return false;
   }
   std::vector<std::uint8_t> unpacked;
-  const std::uint8_t *output_data = &bytes[data_offset];
+  const std::uint8_t *output_data = bytes.data() + data_offset;
   std::size_t output_size = entry.uncompressed_size;
   if (entry.method == 0) {
     if (crc32(0, output_data, output_size) != entry.crc) {
@@ -292,6 +314,11 @@ bool extract_entries(const Bytes &bytes, const std::vector<Entry> &archive_entri
                      const std::filesystem::path &destination,
                      std::vector<std::filesystem::path> &files, std::string &error) {
   std::error_code filesystem_error;
+  for (const Entry &entry : archive_entries) {
+    std::size_t data_offset = 0;
+    if (!local_data_offset(bytes, entry, data_offset, error))
+      return false;
+  }
   std::filesystem::create_directories(destination, filesystem_error);
   if (filesystem_error) {
     error = "could not create extraction directory";
