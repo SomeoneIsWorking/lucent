@@ -288,7 +288,71 @@ bool extract_entry(const Bytes &bytes, const Entry &entry, const std::filesystem
   return true;
 }
 
+bool extract_entries(const Bytes &bytes, const std::vector<Entry> &archive_entries,
+                     const std::filesystem::path &destination,
+                     std::vector<std::filesystem::path> &files, std::string &error) {
+  std::error_code filesystem_error;
+  std::filesystem::create_directories(destination, filesystem_error);
+  if (filesystem_error) {
+    error = "could not create extraction directory";
+    return false;
+  }
+  for (const Entry &entry : archive_entries) {
+    if (entry.name.back() == '/') {
+      std::filesystem::create_directories(destination / std::filesystem::path(entry.name),
+                                          filesystem_error);
+      if (filesystem_error) {
+        error = "could not create extracted archive directory";
+        return false;
+      }
+      continue;
+    }
+    std::filesystem::path extracted;
+    if (!extract_entry(bytes, entry, destination, extracted, error))
+      return false;
+    files.push_back(std::move(extracted));
+  }
+  return true;
+}
+
 } // namespace
+
+bool extract_archive(const std::filesystem::path &archive, const std::filesystem::path &destination,
+                     std::vector<std::filesystem::path> &files, std::string &error,
+                     ExtractionLimits limits) {
+  files.clear();
+  error.clear();
+  Bytes bytes;
+  std::vector<Entry> archive_entries;
+  return read_file(archive, bytes, limits, error) &&
+         entries(bytes, archive_entries, limits, error) &&
+         extract_entries(bytes, archive_entries, destination, files, error);
+}
+
+bool find_unique_file(const std::vector<std::filesystem::path> &files, const FileMatcher &matches,
+                      std::filesystem::path &file, std::string &error) {
+  file.clear();
+  error.clear();
+  if (!matches) {
+    error = "extracted-file matcher is empty";
+    return false;
+  }
+  for (const std::filesystem::path &candidate : files) {
+    if (!matches(candidate))
+      continue;
+    if (!file.empty()) {
+      file.clear();
+      error = "more than one extracted file matched the required identity";
+      return false;
+    }
+    file = candidate;
+  }
+  if (file.empty()) {
+    error = "no extracted file matched the required identity";
+    return false;
+  }
+  return true;
+}
 
 bool extract_install(const std::filesystem::path &archive, const std::filesystem::path &destination,
                      std::string_view required_name, std::filesystem::path &executable,
@@ -309,29 +373,15 @@ bool extract_install(const std::filesystem::path &archive, const std::filesystem
                          : "archive contains more than one matching executable";
     return false;
   }
-  std::error_code filesystem_error;
-  std::filesystem::create_directories(destination, filesystem_error);
-  if (filesystem_error) {
-    error = "could not create extraction directory";
+  std::vector<std::filesystem::path> files;
+  if (!extract_entries(bytes, archive_entries, destination, files, error))
     return false;
-  }
-  for (const Entry &entry : archive_entries) {
-    if (entry.name.back() == '/') {
-      std::filesystem::create_directories(destination / std::filesystem::path(entry.name),
-                                          filesystem_error);
-      if (filesystem_error) {
-        error = "could not create extracted archive directory";
-        return false;
-      }
-      continue;
-    }
-    std::filesystem::path extracted;
-    if (!extract_entry(bytes, entry, destination, extracted, error))
-      return false;
-    if (equal_name(extracted.filename().string(), required_name))
-      executable = extracted;
-  }
-  return !executable.empty();
+  return find_unique_file(
+      files,
+      [required_name](const std::filesystem::path &file) {
+        return equal_name(file.filename().string(), required_name);
+      },
+      executable, error);
 }
 
 } // namespace lucent::zip

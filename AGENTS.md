@@ -15,9 +15,9 @@ that several projects would otherwise reimplement; its core remains dependency-f
 - `platform` owns portable per-application user-data directory resolution and private directory
   creation. Android shells provide their app-private root through the C ABI; they own URI selection
   and document copying, while consumers own install validation and archive policy.
-- `zip` owns safe ZIP entry discovery and extraction for user-provided install archives. Consumers
-  supply the required filename and destination; game-specific archive layouts do not belong in
-  Lucent.
+- `zip` owns safe ZIP entry discovery, bounded extraction, and exactly-one candidate selection for
+  user-provided install archives. Consumers supply the destination and title-specific filename or
+  content-identity matcher; game-specific archive layouts and validation do not belong in Lucent.
 
 Run `tools/check_cpp_quality.sh scratch/build` and `ctest --test-dir scratch/build` before landing.
 Update `docs/codemap.md` in the same commit when ownership changes.
