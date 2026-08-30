@@ -1,1 +1,0 @@
-/usr/lib64/ccache/c++ -fno-exceptions -Wl,--dependency-file=CMakeFiles/lucent_http_tests.dir/link.d CMakeFiles/lucent_http_tests.dir/tests/test_http.cpp.o -o lucent_http_tests  liblucent.a

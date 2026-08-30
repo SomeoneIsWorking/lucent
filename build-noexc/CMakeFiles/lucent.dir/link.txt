@@ -1,2 +1,0 @@
-/usr/bin/ar qc liblucent.a CMakeFiles/lucent.dir/src/config.cpp.o CMakeFiles/lucent.dir/src/http.cpp.o CMakeFiles/lucent.dir/src/log.cpp.o
-/usr/bin/ranlib liblucent.a

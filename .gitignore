@@ -1,4 +1,5 @@
 build/
+build-noexc/
 scratch/
 *.o
 *.a

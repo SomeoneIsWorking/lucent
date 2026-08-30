@@ -15,16 +15,27 @@ add_library(lucent STATIC
 )
 add_library(lucent::lucent ALIAS lucent)
 
-find_package(ZLIB REQUIRED)
-add_library(lucent_zip STATIC src/zip.cpp)
-add_library(lucent::zip ALIAS lucent_zip)
-target_link_libraries(lucent_zip PUBLIC ZLIB::ZLIB)
-target_include_directories(lucent_zip PUBLIC
-  $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
-  $<INSTALL_INTERFACE:include>
-)
-target_compile_features(lucent_zip PUBLIC cxx_std_20)
-set_target_properties(lucent_zip PROPERTIES POSITION_INDEPENDENT_CODE ON)
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+  set(_lucent_build_zip_default ON)
+else()
+  set(_lucent_build_zip_default OFF)
+endif()
+option(LUCENT_BUILD_ZIP "Build lucent's zlib-backed ZIP extraction target"
+       ${_lucent_build_zip_default})
+unset(_lucent_build_zip_default)
+
+if(LUCENT_BUILD_ZIP)
+  find_package(ZLIB REQUIRED)
+  add_library(lucent_zip STATIC src/zip.cpp)
+  add_library(lucent::zip ALIAS lucent_zip)
+  target_link_libraries(lucent_zip PUBLIC ZLIB::ZLIB)
+  target_include_directories(lucent_zip PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>
+  )
+  target_compile_features(lucent_zip PUBLIC cxx_std_20)
+  set_target_properties(lucent_zip PROPERTIES POSITION_INDEPENDENT_CODE ON)
+endif()
 
 find_package(Threads REQUIRED)
 target_link_libraries(lucent PUBLIC Threads::Threads)
@@ -81,9 +92,16 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     target_link_libraries(lucent_platform_tests PRIVATE lucent)
     add_test(NAME lucent_platform_tests COMMAND lucent_platform_tests)
 
-    add_executable(lucent_zip_tests tests/test_zip.cpp)
-    target_link_libraries(lucent_zip_tests PRIVATE lucent::zip)
-    add_test(NAME lucent_zip_tests COMMAND lucent_zip_tests)
+    add_executable(lucent_core_portability_tests tests/test_core_portability.cpp)
+    target_compile_definitions(lucent_core_portability_tests PRIVATE LUCENT_DISABLE_STD_FORMAT=1)
+    target_link_libraries(lucent_core_portability_tests PRIVATE lucent)
+    add_test(NAME lucent_core_portability_tests COMMAND lucent_core_portability_tests)
+
+    if(TARGET lucent_zip)
+      add_executable(lucent_zip_tests tests/test_zip.cpp)
+      target_link_libraries(lucent_zip_tests PRIVATE lucent::zip)
+      add_test(NAME lucent_zip_tests COMMAND lucent_zip_tests)
+    endif()
 
     # A SECOND binary, compiled from lucent's sources with the consumer-name macros set, because
     # that is the thing under test: `lucent` itself is built with the defaults, and a compile-time
@@ -113,8 +131,10 @@ endif()
 include(GNUInstallDirs)
 install(TARGETS lucent EXPORT lucentTargets
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
-install(TARGETS lucent_zip EXPORT lucentTargets
-        ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+if(TARGET lucent_zip)
+  install(TARGETS lucent_zip EXPORT lucentTargets
+          ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+endif()
 install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})
 install(EXPORT lucentTargets
         FILE lucentTargets.cmake

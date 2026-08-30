@@ -40,10 +40,25 @@
 
 #include <atomic>
 #include <cstdint>
-#include <format>
 #include <functional>
 #include <string>
 #include <string_view>
+#include <utility>
+
+// Raw log(), sinks, channels, and Line do not need the C++20 formatting library. GCC 11's
+// libstdc++ has no <format>, and a consumer using only those core APIs must still compile. The
+// convenience templates remain available wherever the standard library actually provides them.
+#if !defined(LUCENT_DISABLE_STD_FORMAT) && defined(__has_include)
+#if __has_include(<format>)
+#include <format>
+#if defined(__cpp_lib_format)
+#define LUCENT_HAS_STD_FORMAT 1
+#endif
+#endif
+#endif
+#ifndef LUCENT_HAS_STD_FORMAT
+#define LUCENT_HAS_STD_FORMAT 0
+#endif
 
 namespace lucent {
 
@@ -123,6 +138,7 @@ bool channel_enabled(std::string_view channel);
 void rearm_channels_from_env();
 } // namespace detail
 
+#if LUCENT_HAS_STD_FORMAT
 template <class... Args>
 void info(std::string_view channel, std::format_string<Args...> fmt, Args &&...args) {
   log(Level::Info, channel, std::format(fmt, std::forward<Args>(args)...));
@@ -163,6 +179,7 @@ void debug(const Channel &channel, std::format_string<Args...> fmt, Args &&...ar
     return;
   log(Level::Debug, channel.name(), std::format(fmt, std::forward<Args>(args)...));
 }
+#endif
 
 // ── Channels ────────────────────────────────────────────────────────────────────────────────────
 // Usually driven by LUCENT_DEBUG. Call these to change it at runtime — e.g. from a debug console.
@@ -190,10 +207,12 @@ void set_sink(Sink sink);
 // Truncation-safe: past the cap it appends "..." and stops accepting more.
 class Line {
 public:
+#if LUCENT_HAS_STD_FORMAT
   template <class... Args> Line &add(std::format_string<Args...> fmt, Args &&...args) {
     append(std::format(fmt, std::forward<Args>(args)...));
     return *this;
   }
+#endif
   // Emits the accumulated text as one line and clears it. A no-op when nothing was added, so a loop
   // that produced no pieces prints nothing rather than an empty "[chan] ".
   void flush(Level level, std::string_view channel);

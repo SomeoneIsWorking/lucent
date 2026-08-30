@@ -8,7 +8,6 @@
 #include <charconv>
 #include <condition_variable>
 #include <cstring>
-#include <format>
 #include <mutex>
 #include <thread>
 #include <unordered_set>
@@ -75,10 +74,10 @@ bool send_all(int socket, const void *bytes, std::size_t size) {
 }
 
 void send_response(int socket, const Response &response) {
-  const std::string header =
-      std::format("HTTP/1.1 {} {}\r\nContent-Type: {}\r\nContent-Length: {}\r\n"
-                  "Cache-Control: no-store\r\nConnection: close\r\n\r\n",
-                  response.status, response.reason, response.content_type, response.body.size());
+  std::string header = "HTTP/1.1 " + std::to_string(response.status) + " " + response.reason +
+                       "\r\nContent-Type: " + response.content_type +
+                       "\r\nContent-Length: " + std::to_string(response.body.size()) +
+                       "\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n";
   if (send_all(socket, header.data(), header.size())) {
     send_all(socket, response.body.data(), response.body.size());
   }
@@ -301,10 +300,10 @@ void serve_client(const std::shared_ptr<detail::ServerState> &state, int client)
   try {
     send_response(client, state->handler(request));
   } catch (const std::exception &exception) {
-    lucent::error("http", "request handler threw: {}", exception.what());
+    lucent::log(Level::Error, "http", std::string{"request handler threw: "} + exception.what());
     send_response(client, error_response(500, "Internal Server Error", "request handler failed"));
   } catch (...) {
-    lucent::error("http", "request handler threw an unknown exception");
+    lucent::log(Level::Error, "http", "request handler threw an unknown exception");
     send_response(client, error_response(500, "Internal Server Error", "request handler failed"));
   }
 #else
@@ -324,7 +323,7 @@ void accept_connections(const std::shared_ptr<detail::ServerState> &state) {
     if (client < 0) {
       if (!state->running.load(std::memory_order_acquire))
         break;
-      lucent::warn("http", "accept failed (errno {})", errno);
+      lucent::log(Level::Warn, "http", "accept failed (errno " + std::to_string(errno) + ")");
       continue;
     }
     set_close_on_exec(client);
@@ -348,7 +347,8 @@ void accept_connections(const std::shared_ptr<detail::ServerState> &state) {
     try {
       std::thread(serve_client, state, client).detach();
     } catch (const std::system_error &error) {
-      lucent::error("http", "could not start request worker: {}", error.what());
+      lucent::log(Level::Error, "http",
+                  std::string{"could not start request worker: "} + error.what());
       send_response(client,
                     error_response(503, "Service Unavailable", "could not start request worker"));
       finish_client(state, client);
@@ -421,13 +421,14 @@ bool Server::start() {
     return true;
   if (!state_->handler || state_->options.max_header_bytes < 16 ||
       state_->options.max_connections == 0 || state_->options.backlog <= 0) {
-    lucent::error("http", "refusing invalid server options");
+    lucent::log(Level::Error, "http", "refusing invalid server options");
     return false;
   }
 
   const int listener = socket(AF_INET, SOCK_STREAM, 0);
   if (listener < 0) {
-    lucent::error("http", "could not create listener (errno {})", errno);
+    lucent::log(Level::Error, "http",
+                "could not create listener (errno " + std::to_string(errno) + ")");
     return false;
   }
   set_close_on_exec(listener);
@@ -440,15 +441,17 @@ bool Server::start() {
   address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
   if (bind(listener, reinterpret_cast<const sockaddr *>(&address), sizeof(address)) != 0 ||
       listen(listener, state_->options.backlog) != 0) {
-    lucent::error("http", "could not bind loopback listener on port {} (errno {})",
-                  state_->options.port, errno);
+    lucent::log(Level::Error, "http",
+                "could not bind loopback listener on port " + std::to_string(state_->options.port) +
+                    " (errno " + std::to_string(errno) + ")");
     close_socket(listener);
     return false;
   }
 
   socklen_t address_size = sizeof(address);
   if (getsockname(listener, reinterpret_cast<sockaddr *>(&address), &address_size) != 0) {
-    lucent::error("http", "could not read bound listener address (errno {})", errno);
+    lucent::log(Level::Error, "http",
+                "could not read bound listener address (errno " + std::to_string(errno) + ")");
     close_socket(listener);
     return false;
   }
@@ -463,13 +466,15 @@ bool Server::start() {
     state_->listener.store(-1, std::memory_order_release);
     state_->bound_port.store(0, std::memory_order_release);
     close_socket(listener);
-    lucent::error("http", "could not start listener thread: {}", error.what());
+    lucent::log(Level::Error, "http",
+                std::string{"could not start listener thread: "} + error.what());
     return false;
   }
 #else
   state_->accept_thread = std::thread(accept_connections, state_);
 #endif
-  lucent::info("http", "loopback server listening on http://127.0.0.1:{}", port());
+  lucent::log(Level::Info, "http",
+              "loopback server listening on http://127.0.0.1:" + std::to_string(port()));
   return true;
 }
 
