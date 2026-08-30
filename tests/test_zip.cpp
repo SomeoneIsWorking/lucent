@@ -82,13 +82,14 @@ std::vector<unsigned char> make_archive() {
   std::vector<unsigned char> central;
   entry(archive, central, "Install/readme.txt", "fixture", 0);
   entry(archive, central, "Install/Sub/XMen2.exe", "not a game", 8);
+  entry(archive, central, "Install/empty.txt", "", 8);
   const unsigned central_offset = archive.size();
   archive.insert(archive.end(), central.begin(), central.end());
   u32(archive, 0x06054b50);
   u16(archive, 0);
   u16(archive, 0);
-  u16(archive, 2);
-  u16(archive, 2);
+  u16(archive, 3);
+  u16(archive, 3);
   u32(archive, central.size());
   u32(archive, central_offset);
   u16(archive, 0);
@@ -110,7 +111,7 @@ int main() {
 
   std::vector<std::filesystem::path> extracted_files;
   if (!lucent::zip::extract_archive(archive, destination, extracted_files, error) ||
-      extracted_files.size() != 2) {
+      extracted_files.size() != 3 || std::filesystem::file_size(extracted_files[2]) != 0) {
     std::cerr << "validated archive was not extracted: " << error << "\n";
     return 1;
   }
@@ -142,6 +143,22 @@ int main() {
     return 1;
   }
   std::filesystem::remove_all(destination);
+
+  const std::filesystem::path mismatch_archive = "zip-test-local-mismatch.zip";
+  {
+    auto bytes = make_archive();
+    bytes[6] = 1;
+    std::ofstream output(mismatch_archive, std::ios::binary);
+    output.write(reinterpret_cast<const char *>(bytes.data()), bytes.size());
+  }
+  extracted_files.clear();
+  if (lucent::zip::extract_archive(mismatch_archive, destination, extracted_files, error) ||
+      error.find("disagrees with its central directory") == std::string::npos ||
+      std::filesystem::exists(destination)) {
+    std::cerr << "local/central mismatch was not refused before staging: " << error << "\n";
+    return 1;
+  }
+  std::filesystem::remove(mismatch_archive);
 
   if (!lucent::zip::extract_install(archive, destination, "XMen2.exe", executable, error) ||
       executable.filename() != "XMen2.exe" || !std::filesystem::is_regular_file(executable)) {
@@ -180,7 +197,7 @@ int main() {
     return 1;
 
   std::filesystem::remove(archive);
-  std::cout << "zip: content identity and nested basename selected uniquely; archive, entry, "
-               "count, and expansion limits refused\n";
+  std::cout << "zip: content identity, empty deflate, and local/central agreement validated; "
+               "archive, entry, count, and expansion limits refused\n";
   return 0;
 }
