@@ -2,6 +2,7 @@
 
 #include <fstream>
 #include <iostream>
+#include <iterator>
 #include <string>
 #include <vector>
 
@@ -106,6 +107,42 @@ int main() {
   }
   std::filesystem::path executable;
   std::string error;
+
+  std::vector<std::filesystem::path> extracted_files;
+  if (!lucent::zip::extract_archive(archive, destination, extracted_files, error) ||
+      extracted_files.size() != 2) {
+    std::cerr << "validated archive was not extracted: " << error << "\n";
+    return 1;
+  }
+  const auto has_identity = [](const std::filesystem::path &path) {
+    std::ifstream input(path, std::ios::binary);
+    return std::string(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>()) ==
+           "not a game";
+  };
+  if (!lucent::zip::find_unique_file(extracted_files, has_identity, executable, error) ||
+      executable.filename() != "XMen2.exe") {
+    std::cerr << "content identity did not select the nested file: " << error << "\n";
+    return 1;
+  }
+  if (lucent::zip::find_unique_file(
+          extracted_files, [](const auto &) { return false; }, executable, error) ||
+      error.find("no extracted file") == std::string::npos) {
+    std::cerr << "missing identity was not refused: " << error << "\n";
+    return 1;
+  }
+  if (lucent::zip::find_unique_file(
+          extracted_files, [](const auto &) { return true; }, executable, error) ||
+      error.find("more than one") == std::string::npos) {
+    std::cerr << "ambiguous identity was not refused: " << error << "\n";
+    return 1;
+  }
+  if (lucent::zip::find_unique_file(extracted_files, {}, executable, error) ||
+      error.find("matcher is empty") == std::string::npos) {
+    std::cerr << "empty identity matcher was not refused: " << error << "\n";
+    return 1;
+  }
+  std::filesystem::remove_all(destination);
+
   if (!lucent::zip::extract_install(archive, destination, "XMen2.exe", executable, error) ||
       executable.filename() != "XMen2.exe" || !std::filesystem::is_regular_file(executable)) {
     std::cerr << "nested executable was not extracted: " << error << "\n";
@@ -143,7 +180,7 @@ int main() {
     return 1;
 
   std::filesystem::remove(archive);
-  std::cout
-      << "zip: nested install extracted; archive, entry, count, and expansion limits refused\n";
+  std::cout << "zip: content identity and nested basename selected uniquely; archive, entry, "
+               "count, and expansion limits refused\n";
   return 0;
 }
