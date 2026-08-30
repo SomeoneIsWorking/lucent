@@ -11,7 +11,7 @@ Clang is the verification toolchain; compatible GCC and AppleClang consumers are
 | Loopback HTTP | real, tested | `include/lucent/http.h`, `src/http.cpp` | One request per connection; no TLS, remote binding, keep-alive, or chunked transfer by design. Request framing and diagnostics use the raw logging boundary and do not impose the optional formatting API on consumers. |
 | Touch routing | real, tested | `include/lucent/touch.h`, `src/touch.cpp` | Platform shells still own event acquisition and application action mapping; Android/SDL3 bindings consume stable zone events |
 | Platform user data | real, tested | `include/lucent/platform.h`, `include/lucent/platform_c.h`, `src/platform.cpp` | Android shells must provide an app-private root; URI selection and document copying remain platform-shell responsibilities |
-| ZIP install extraction | real, tested | `include/lucent/zip.h`, `src/zip.cpp` | Optional `lucent::zip` target uses zlib and is disabled by default for embedded consumers; it extracts safe stored/deflate entries and finds one required executable |
+| ZIP install extraction | real, tested | `include/lucent/zip.h`, `src/zip.cpp`, `tests/test_zip.cpp` | Optional `lucent::zip` target uses zlib and is disabled by default for embedded consumers; it validates paths, duplicate outputs, central/local agreement, CRCs, and configurable archive/entry/count/expanded-size budgets before extracting stored/deflate entries and finding exactly one required executable. |
 | Verification | real | `tests/`, `tools/check_cpp_quality.sh`, `tools/check_source_structure.py` | Run through CTest in top-level builds |
 
 ## Source tree

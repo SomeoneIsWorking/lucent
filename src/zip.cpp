@@ -6,6 +6,7 @@
 #include <fstream>
 #include <iterator>
 #include <limits>
+#include <unordered_set>
 #include <vector>
 
 #include <zlib.h>
@@ -64,7 +65,18 @@ struct Entry {
   std::uint32_t local_offset = 0;
 };
 
-bool read_file(const std::filesystem::path &path, Bytes &bytes, std::string &error) {
+bool read_file(const std::filesystem::path &path, Bytes &bytes, const ExtractionLimits &limits,
+               std::string &error) {
+  std::error_code status;
+  const std::uintmax_t size = std::filesystem::file_size(path, status);
+  if (status) {
+    error = "could not inspect archive size";
+    return false;
+  }
+  if (size > limits.max_archive_bytes) {
+    error = "archive exceeds the compressed byte limit";
+    return false;
+  }
   std::ifstream input(path, std::ios::binary);
   if (!input) {
     error = "could not open archive";
@@ -75,10 +87,24 @@ bool read_file(const std::filesystem::path &path, Bytes &bytes, std::string &err
     error = "could not read archive";
     return false;
   }
+  if (bytes.size() > limits.max_archive_bytes) {
+    error = "archive grew beyond the compressed byte limit while being read";
+    return false;
+  }
   return true;
 }
 
-bool entries(const Bytes &bytes, std::vector<Entry> &out, std::string &error) {
+std::string normalized_name(std::string_view name) {
+  if (!name.empty() && name.back() == '/')
+    name.remove_suffix(1);
+  std::string normalized{name};
+  std::transform(normalized.begin(), normalized.end(), normalized.begin(),
+                 [](unsigned char value) { return static_cast<char>(std::tolower(value)); });
+  return normalized;
+}
+
+bool entries(const Bytes &bytes, std::vector<Entry> &out, const ExtractionLimits &limits,
+             std::string &error) {
   constexpr std::uint32_t end_signature = 0x06054b50;
   constexpr std::uint32_t entry_signature = 0x02014b50;
   const std::size_t lower = bytes.size() > 22 + 0xffff ? bytes.size() - 22 - 0xffff : 0;
@@ -108,7 +134,14 @@ bool entries(const Bytes &bytes, std::vector<Entry> &out, std::string &error) {
     error = "ZIP64 archives are not supported";
     return false;
   }
+  if (count > limits.max_entries) {
+    error = "archive exceeds the entry-count limit";
+    return false;
+  }
   std::size_t offset = central_offset;
+  const std::size_t central_end = central_offset + central_size;
+  std::uint64_t extracted_bytes = 0;
+  std::unordered_set<std::string> names;
   for (std::size_t index = 0; index < count; ++index) {
     if (!has(bytes, offset, 46) || u32(bytes, offset) != entry_signature) {
       error = "archive central directory entry is invalid";
@@ -118,7 +151,8 @@ bool entries(const Bytes &bytes, std::vector<Entry> &out, std::string &error) {
     const std::size_t extra_size = u16(bytes, offset + 30);
     const std::size_t comment_size = u16(bytes, offset + 32);
     const std::size_t record_size = 46 + name_size + extra_size + comment_size;
-    if (!has(bytes, offset, record_size)) {
+    if (offset > central_end || !has(bytes, offset, record_size) ||
+        record_size > central_end - offset) {
       error = "archive central directory entry is truncated";
       return false;
     }
@@ -136,6 +170,15 @@ bool entries(const Bytes &bytes, std::vector<Entry> &out, std::string &error) {
       error = "ZIP64 archive entries are not supported";
       return false;
     }
+    if (entry.uncompressed_size > limits.max_entry_bytes) {
+      error = "archive entry exceeds the expanded byte limit";
+      return false;
+    }
+    if (entry.uncompressed_size > limits.max_extracted_bytes - extracted_bytes) {
+      error = "archive exceeds the total expanded byte limit";
+      return false;
+    }
+    extracted_bytes += entry.uncompressed_size;
     const bool directory = !entry.name.empty() && entry.name.back() == '/';
     const std::string_view checked_name =
         directory ? std::string_view(entry.name).substr(0, entry.name.size() - 1)
@@ -144,8 +187,16 @@ bool entries(const Bytes &bytes, std::vector<Entry> &out, std::string &error) {
       error = "archive contains an unsafe path";
       return false;
     }
+    if (!names.insert(normalized_name(entry.name)).second) {
+      error = "archive contains duplicate output paths";
+      return false;
+    }
     out.push_back(std::move(entry));
     offset += record_size;
+  }
+  if (offset != central_end) {
+    error = "archive central directory size does not match its entries";
+    return false;
   }
   return true;
 }
@@ -179,6 +230,13 @@ bool extract_entry(const Bytes &bytes, const Entry &entry, const std::filesystem
   const std::size_t name_size = u16(bytes, entry.local_offset + 26);
   const std::size_t extra_size = u16(bytes, entry.local_offset + 28);
   const std::size_t data_offset = entry.local_offset + 30 + name_size + extra_size;
+  if (!has(bytes, entry.local_offset + 30, name_size + extra_size) ||
+      std::string_view(reinterpret_cast<const char *>(&bytes[entry.local_offset + 30]),
+                       name_size) != entry.name ||
+      u16(bytes, entry.local_offset + 8) != entry.method) {
+    error = "archive local entry disagrees with its central directory";
+    return false;
+  }
   if (!has(bytes, data_offset, entry.compressed_size)) {
     error = "archive entry data is truncated";
     return false;
@@ -234,10 +292,12 @@ bool extract_entry(const Bytes &bytes, const Entry &entry, const std::filesystem
 
 bool extract_install(const std::filesystem::path &archive, const std::filesystem::path &destination,
                      std::string_view required_name, std::filesystem::path &executable,
-                     std::string &error) {
+                     std::string &error, ExtractionLimits limits) {
+  executable.clear();
+  error.clear();
   Bytes bytes;
   std::vector<Entry> archive_entries;
-  if (!read_file(archive, bytes, error) || !entries(bytes, archive_entries, error))
+  if (!read_file(archive, bytes, limits, error) || !entries(bytes, archive_entries, limits, error))
     return false;
   const auto matches = std::count_if(
       archive_entries.begin(), archive_entries.end(), [required_name](const Entry &entry) {

@@ -217,7 +217,8 @@ target_link_libraries(myapp PRIVATE lucent::lucent)
 
 The zlib-backed `lucent::zip` target is built by default only when Lucent is the top-level project.
 An embedded consumer that needs it enables `LUCENT_BUILD_ZIP` before `add_subdirectory`; core-only
-consumers do not need zlib.
+consumers do not need zlib. `lucent::zip::extract_install` accepts configurable compressed-size,
+expanded-size, per-entry, and entry-count limits and validates all entries before writing output.
 
 Requires a conforming C++20 compiler. Raw `log()`, channels, sinks, HTTP, platform, and touch APIs
 do not require `std::format`; the formatted `info`/`warn`/`error`/`debug` and `Line::add` convenience
