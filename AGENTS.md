@@ -15,6 +15,8 @@ that several projects would otherwise reimplement; its core remains dependency-f
 - `platform` owns portable per-application user-data directory resolution and private directory
   creation. Android shells provide their app-private root through the C ABI; they own URI selection
   and document copying, while consumers own install validation and archive policy.
+- `content` owns dependency-free streaming content digests. Consumers own the expected identity and
+  complete-install policy.
 - `zip` owns safe ZIP entry discovery, bounded extraction, and exactly-one candidate selection for
   user-provided install archives. Consumers supply the destination and title-specific filename or
   content-identity matcher; game-specific archive layouts and validation do not belong in Lucent.

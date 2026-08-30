@@ -8,6 +8,7 @@ set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
 add_library(lucent STATIC
   src/config.cpp
+  src/content.cpp
   src/http.cpp
   src/log.cpp
   src/platform.cpp
@@ -91,6 +92,11 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     add_executable(lucent_platform_tests tests/test_platform.cpp)
     target_link_libraries(lucent_platform_tests PRIVATE lucent)
     add_test(NAME lucent_platform_tests COMMAND lucent_platform_tests)
+
+    add_executable(lucent_content_tests tests/test_content.cpp)
+    target_link_libraries(lucent_content_tests PRIVATE lucent)
+    add_test(NAME lucent_content_tests COMMAND lucent_content_tests
+      "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/sha256.txt")
 
     add_executable(lucent_core_portability_tests tests/test_core_portability.cpp)
     target_compile_definitions(lucent_core_portability_tests PRIVATE LUCENT_DISABLE_STD_FORMAT=1)
