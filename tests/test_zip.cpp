@@ -111,8 +111,39 @@ int main() {
     std::cerr << "nested executable was not extracted: " << error << "\n";
     return 1;
   }
-  std::filesystem::remove(archive);
   std::filesystem::remove_all(destination);
-  std::cout << "zip: nested stored/deflate install extracted\n";
+
+  const auto expect_refused = [&](lucent::zip::ExtractionLimits limits, std::string_view expected) {
+    error.clear();
+    executable.clear();
+    if (lucent::zip::extract_install(archive, destination, "XMen2.exe", executable, error,
+                                     limits) ||
+        error.find(expected) == std::string::npos || std::filesystem::exists(destination)) {
+      std::cerr << "limit refusal failed; expected " << expected << ", got " << error << "\n";
+      return false;
+    }
+    return true;
+  };
+
+  lucent::zip::ExtractionLimits limits;
+  limits.max_archive_bytes = std::filesystem::file_size(archive) - 1;
+  if (!expect_refused(limits, "compressed byte limit"))
+    return 1;
+  limits = {};
+  limits.max_entries = 1;
+  if (!expect_refused(limits, "entry-count limit"))
+    return 1;
+  limits = {};
+  limits.max_entry_bytes = 5;
+  if (!expect_refused(limits, "entry exceeds"))
+    return 1;
+  limits = {};
+  limits.max_extracted_bytes = 10;
+  if (!expect_refused(limits, "total expanded byte limit"))
+    return 1;
+
+  std::filesystem::remove(archive);
+  std::cout
+      << "zip: nested install extracted; archive, entry, count, and expansion limits refused\n";
   return 0;
 }
