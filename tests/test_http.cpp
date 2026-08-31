@@ -3,6 +3,8 @@
 #include <atomic>
 #include <cstdint>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <future>
 #include <iostream>
 #include <optional>
@@ -212,12 +214,36 @@ void test_local_network_scope_is_explicit() {
   network.stop();
 }
 
+void test_file_response_streams_exact_bytes() {
+  const auto path = std::filesystem::current_path() / "http-file-response.bin";
+  std::string expected(128 * 1024, '\0');
+  for (std::size_t index = 0; index < expected.size(); ++index)
+    expected[index] = static_cast<char>(index % 251);
+  {
+    std::ofstream file(path, std::ios::binary);
+    file.write(expected.data(), static_cast<std::streamsize>(expected.size()));
+    CHECK(file.good());
+  }
+  lucent::http::Server server({}, [path](const lucent::http::Request &) {
+    return lucent::http::Response::file(200, "OK", "application/zip", path.string());
+  });
+  CHECK(server.start());
+  const auto response = request(server.port(), "GET /pack HTTP/1.1\r\nHost: localhost\r\n\r\n");
+  CHECK(response.starts_with("HTTP/1.1 200 OK\r\n"));
+  CHECK(body(response) == expected);
+  server.stop();
+  std::error_code error;
+  std::filesystem::remove(path, error);
+  CHECK(!error);
+}
+
 } // namespace
 
 int main() {
   test_form_decoder();
   test_server_transport_and_concurrency();
   test_local_network_scope_is_explicit();
+  test_file_response_streams_exact_bytes();
   if (g_failures == 0) {
     std::cout << "all HTTP tests passed\n";
   } else {

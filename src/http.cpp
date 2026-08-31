@@ -8,6 +8,8 @@
 #include <charconv>
 #include <condition_variable>
 #include <cstring>
+#include <filesystem>
+#include <fstream>
 #include <mutex>
 #include <thread>
 #include <unordered_set>
@@ -73,14 +75,32 @@ bool send_all(int socket, const void *bytes, std::size_t size) {
   return true;
 }
 
-void send_response(int socket, const Response &response) {
+bool send_response(int socket, const Response &response) {
+  std::error_code error;
+  const std::uintmax_t file_size =
+      response.file_path.empty() ? 0 : std::filesystem::file_size(response.file_path, error);
+  if (!response.file_path.empty() && error)
+    return false;
+  const std::size_t content_length =
+      response.file_path.empty() ? response.body.size() : static_cast<std::size_t>(file_size);
   std::string header = "HTTP/1.1 " + std::to_string(response.status) + " " + response.reason +
                        "\r\nContent-Type: " + response.content_type +
-                       "\r\nContent-Length: " + std::to_string(response.body.size()) +
+                       "\r\nContent-Length: " + std::to_string(content_length) +
                        "\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n";
-  if (send_all(socket, header.data(), header.size())) {
-    send_all(socket, response.body.data(), response.body.size());
+  if (!send_all(socket, header.data(), header.size()))
+    return false;
+  if (response.file_path.empty())
+    return send_all(socket, response.body.data(), response.body.size());
+
+  std::ifstream file(response.file_path, std::ios::binary);
+  if (!file)
+    return false;
+  char block[64 * 1024];
+  while (file.read(block, sizeof(block)) || file.gcount() != 0) {
+    if (!send_all(socket, block, static_cast<std::size_t>(file.gcount())))
+      return false;
   }
+  return !file.bad();
 }
 
 Response error_response(int status, std::string reason, std::string message) {
@@ -298,7 +318,8 @@ void serve_client(const std::shared_ptr<detail::ServerState> &state, int client)
 
 #if LUCENT_EXCEPTIONS
   try {
-    send_response(client, state->handler(request));
+    if (!send_response(client, state->handler(request)))
+      lucent::log(Level::Warn, "http", "response could not be sent");
   } catch (const std::exception &exception) {
     lucent::log(Level::Error, "http", std::string{"request handler threw: "} + exception.what());
     send_response(client, error_response(500, "Internal Server Error", "request handler failed"));
@@ -373,16 +394,26 @@ std::string_view Request::query() const noexcept {
 }
 
 Response Response::text(int status, std::string reason, std::string body) {
-  return {status, std::move(reason), "text/plain; charset=utf-8", std::move(body)};
+  return {status, std::move(reason), "text/plain; charset=utf-8", std::move(body), {}};
 }
 
 Response Response::json(int status, std::string reason, std::string body) {
-  return {status, std::move(reason), "application/json", std::move(body)};
+  return {status, std::move(reason), "application/json", std::move(body), {}};
 }
 
 Response Response::binary(int status, std::string reason, std::string content_type,
                           std::string body) {
-  return {status, std::move(reason), std::move(content_type), std::move(body)};
+  return {status, std::move(reason), std::move(content_type), std::move(body), {}};
+}
+
+Response Response::file(int status, std::string reason, std::string content_type,
+                        std::string path) {
+  Response response;
+  response.status = status;
+  response.reason = std::move(reason);
+  response.content_type = std::move(content_type);
+  response.file_path = std::move(path);
+  return response;
 }
 
 bool parse_form_urlencoded(std::string_view encoded, std::vector<FormField> &fields,
