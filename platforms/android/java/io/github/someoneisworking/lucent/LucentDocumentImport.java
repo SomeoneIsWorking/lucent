@@ -275,7 +275,7 @@ public final class LucentDocumentImport {
                 documentName = readDocumentName(source);
                 validateLeafName(documentName);
                 budget.addEntry(-1);
-                copyFile(source, new File(staging, documentName), budget);
+                copyFile(source, new File(staging, documentName), budget, -1);
             }
             File completedStaging = staging;
             String completedName = documentName;
@@ -377,13 +377,23 @@ public final class LucentDocumentImport {
                     }
                     copyTree(tree, id, target, budget);
                 } else {
-                    copyFile(child, target, budget);
+                    copyFile(child, target, budget, declaredSize);
                 }
             }
         }
     }
 
-    private void copyFile(Uri source, File target, Budget budget) throws IOException {
+    private void copyFile(Uri source, File target, Budget budget, long declaredSize)
+            throws IOException {
+        /* A provider's explicit size of zero means no bytes need reading. It
+         * is also the only safe escape from Waydroid's broken zero-length
+         * document open path; unknown sizes remain on the normal byte stream. */
+        if (declaredSize == 0) {
+            if (!target.createNewFile()) {
+                throw new IOException("cannot create empty private file " + target.getName());
+            }
+            return;
+        }
         try (InputStream input = openFile(source, target.getName());
              OutputStream output = new FileOutputStream(target)) {
             byte[] buffer = new byte[limits.bufferBytes];
