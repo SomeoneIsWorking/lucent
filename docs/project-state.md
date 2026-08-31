@@ -14,7 +14,7 @@ S007 is the current focus.
 | S004 | Streaming content identity and bounded ZIP discovery/extraction support safe player-owned imports | verified | S002 | G001 |
 | S005 | Platform-neutral multi-touch routing owns contact capture, zones, and cancellation | verified | — | G001 |
 | S006 | Android helpers stage user-selected content through private storage and persisted grants | partial | S002, S004 | G001 |
-| S007 | HTTP responses stream bounded files without loading complete media into memory | partial | S003 | G001 |
+| S007 | HTTP responses stream bounded files without loading complete media into memory | verified | S003 | G001 |
 
 ## Capability details
 
@@ -53,7 +53,7 @@ compiled and exercised through Lucent's own Android target.
 
 ### S007 — Streaming file responses
 
-The current worktree adds bounded streamed file responses to the shared HTTP owner and focused tests for
-ranges, framing, and lifecycle behavior.
-
-Gap: the combined repository quality gate has not yet landed this in-flight capability.
+Evidence: `lucent::http::Response::file` opens a consumer-authorised file only when the handler
+returns it, frames its exact length, and streams it through the existing bounded response path in
+64 KiB blocks. `lucent_http_tests` writes a 128 KiB binary with non-text bytes, fetches it through
+the shipping server, and compares the complete response body byte-for-byte.

@@ -29,11 +29,15 @@ struct Response {
   std::string reason = "OK";
   std::string content_type = "text/plain; charset=utf-8";
   std::string body;
+  std::string file_path;
 
   static Response text(int status, std::string reason, std::string body);
   static Response json(int status, std::string reason, std::string body);
   static Response binary(int status, std::string reason, std::string content_type,
                          std::string body);
+  // Streams a consumer-owned regular file without loading it into memory. The
+  // handler must authorize the path before returning it.
+  static Response file(int status, std::string reason, std::string content_type, std::string path);
 };
 
 struct FormField {

@@ -6,7 +6,7 @@ created: 2026-08-20
 tags:
 depends: src/http.cpp#Server::start
 reconfirmed: 2026-08-31
-verified_at: 2026-08-31 15:09:38+00:00
+verified_at: 2026-08-31 16:29:16+00:00
 ---
 
 ## Claim
@@ -28,3 +28,7 @@ does not accept one, or one blocked handler prevents another connection from com
 ## Re-confirmed 2026-08-31
 
 2026-08-31 lucent_http_tests used the machine non-loopback IPv4 address: default Loopback refused it, explicit LocalNetwork accepted it, and malformed/body-limit/concurrent dispatch tests passed.
+
+## Re-confirmed 2026-08-31
+
+The complete Ninja/Clang CTest gate passed all 12 tests on 2026-08-31. lucent_http_tests again proved bounded framing, malformed and over-cap requests rejected before dispatch, concurrent requests, default loopback refusal on the non-loopback IPv4 address, explicit LocalNetwork acceptance, and exact 128 KiB streamed file bytes.
