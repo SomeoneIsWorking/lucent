@@ -12,7 +12,7 @@ Clang is the verification toolchain; compatible GCC and AppleClang consumers are
 | Loopback HTTP | real, tested | `include/lucent/http.h`, `src/http.cpp` | One request per connection; no TLS, remote binding, keep-alive, or chunked transfer by design. Request framing and diagnostics use the raw logging boundary and do not impose the optional formatting API on consumers. |
 | Touch routing | real, tested | `include/lucent/touch.h`, `src/touch.cpp` | Stable zone events retain both capture origin and current position for relative gestures; platform shells still own acquisition and application action mapping |
 | Platform user data | real, tested | `include/lucent/platform.h`, `include/lucent/platform_c.h`, `src/platform.cpp` | Android shells must provide an app-private root; URI selection and document copying remain platform-shell responsibilities |
-| ZIP install extraction | real, tested | `include/lucent/zip.h`, `src/zip.cpp`, `tests/test_zip.cpp` | Optional `lucent::zip` target uses zlib and is disabled by default for embedded consumers; it validates paths, duplicate outputs, central/local agreement, CRCs, and configurable archive/entry/count/expanded-size budgets before extracting stored/deflate entries. Consumers can select exactly one extracted file by content identity or use the exact-basename convenience path. |
+| ZIP install extraction | real, tested | `include/lucent/zip.h`, `src/zip.cpp`, `tests/test_zip.cpp` | Optional `lucent::zip` target uses zlib and is disabled by default for embedded consumers. Path and byte inputs support direct archives or one nested ZIP, content-identity selection across both levels, aggregate archive/entry/expanded-size budgets, path/duplicate/CRC validation, and failure-atomic publication into a fresh destination. |
 | Verification | real | `tests/`, `tools/check_cpp_quality.sh`, `tools/check_source_structure.py` | Run through CTest in top-level builds |
 
 ## Source tree
@@ -36,6 +36,8 @@ tools/           non-mutating quality and structure gates
   `include/lucent/touch.h`; the consumer supplies the layout, safe-area policy, and action mapping.
 - Resolve a per-application user-data directory: `lucent::platform::user_data_directory` in
   `include/lucent/platform.h`, or the C wrappers in `include/lucent/platform_c.h`.
-- Extract a user-selected ZIP install safely: `lucent::zip::extract_archive` in
-  `include/lucent/zip.h`; the consumer validates title identity with `find_unique_file` before
-  accepting the prepared tree. `extract_install` remains the exact-basename convenience path.
+- Extract a user-selected ZIP install safely: `lucent::zip::extract_unique_install` in
+  `include/lucent/zip.h` searches direct entries and one nested ZIP through a consumer-owned content
+  matcher, then atomically publishes the archive level containing the unique match. Use
+  `extract_archive` when discovery is not needed; `extract_install` remains the exact-basename
+  convenience path.
