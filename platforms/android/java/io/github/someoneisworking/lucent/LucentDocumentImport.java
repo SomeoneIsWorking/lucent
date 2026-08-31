@@ -2,15 +2,18 @@ package io.github.someoneisworking.lucent;
 
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
+import android.content.ContentProviderClient;
 import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.ParcelFileDescriptor;
+import android.os.RemoteException;
 import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
 
 import java.io.File;
 import java.io.FileOutputStream;
+import java.io.FilterInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.io.OutputStream;
@@ -409,20 +412,54 @@ public final class LucentDocumentImport {
     /**
      * Opens a document as an ordinary readable file descriptor.
      *
-     * <p>{@link android.content.ContentResolver#openInputStream(Uri)} takes
-     * Android's typed-asset path. Staging only needs bytes, not MIME
-     * conversion, so use the provider's plain file contract.</p>
+     * <p>{@link android.content.ContentResolver#openFileDescriptor(Uri, String)}
+     * also takes Android's typed-asset path for read-only content URIs. Staging
+     * needs the original bytes, not a MIME conversion, so invoke the selected
+     * provider's plain-file contract directly and retain that provider until
+     * the returned stream closes.</p>
      */
     private InputStream openFile(Uri source, String displayName) throws IOException {
+        ContentProviderClient provider = activity.getContentResolver()
+                .acquireUnstableContentProviderClient(source);
+        if (provider == null) {
+            throw new IOException("selected provider is unavailable for " + displayName);
+        }
         try {
-            ParcelFileDescriptor descriptor = activity.getContentResolver()
-                    .openFileDescriptor(source, "r");
+            ParcelFileDescriptor descriptor = provider.openFile(source, "r", null);
             if (descriptor == null) {
                 throw new IOException("selected provider could not open " + displayName);
             }
-            return new ParcelFileDescriptor.AutoCloseInputStream(descriptor);
-        } catch (RuntimeException error) {
+            return new ProviderInputStream(new ParcelFileDescriptor.AutoCloseInputStream(descriptor), provider);
+        } catch (RemoteException | RuntimeException error) {
+            provider.close();
             throw new IOException("selected provider could not open " + displayName, error);
+        } catch (IOException error) {
+            provider.close();
+            throw error;
+        }
+    }
+
+    /** Holds the acquired provider for exactly the lifetime of its file stream. */
+    private static final class ProviderInputStream extends FilterInputStream {
+        private final ContentProviderClient provider;
+
+        ProviderInputStream(InputStream input, ContentProviderClient provider) {
+            super(input);
+            this.provider = provider;
+        }
+
+        @Override
+        public void close() throws IOException {
+            IOException failure = null;
+            try {
+                super.close();
+            } catch (IOException error) {
+                failure = error;
+            }
+            provider.close();
+            if (failure != null) {
+                throw failure;
+            }
         }
     }
 
