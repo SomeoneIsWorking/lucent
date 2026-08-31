@@ -385,9 +385,8 @@ public final class LucentDocumentImport {
 
     private void copyFile(Uri source, File target, Budget budget, long declaredSize)
             throws IOException {
-        /* A provider's explicit size of zero means no bytes need reading. It
-         * is also the only safe escape from Waydroid's broken zero-length
-         * document open path; unknown sizes remain on the normal byte stream. */
+        /* A provider's explicit size of zero means no bytes need reading.
+         * Unknown sizes remain on the normal byte stream. */
         if (declaredSize == 0) {
             if (!target.createNewFile()) {
                 throw new IOException("cannot create empty private file " + target.getName());
@@ -411,10 +410,8 @@ public final class LucentDocumentImport {
      * Opens a document as an ordinary readable file descriptor.
      *
      * <p>{@link android.content.ContentResolver#openInputStream(Uri)} takes
-     * Android's typed-asset path. The Waydroid DocumentsUI provider throws
-     * from that path for ordinary tree children even though it can provide a
-     * file descriptor. Staging only needs bytes, not MIME conversion, so use
-     * the provider's plain file contract.</p>
+     * Android's typed-asset path. Staging only needs bytes, not MIME
+     * conversion, so use the provider's plain file contract.</p>
      */
     private InputStream openFile(Uri source, String displayName) throws IOException {
         try {
