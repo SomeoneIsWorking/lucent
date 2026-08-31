@@ -33,6 +33,9 @@ struct Event {
   std::int64_t contact_id = 0;
   std::uint32_t zone_id = 0;
   Point position;
+  // Point at which this contact captured the zone. Relative controls such as
+  // camera swipes use this instead of making screen position an input value.
+  Point origin;
   Phase phase = Phase::moved;
 };
 
@@ -49,6 +52,7 @@ public:
 private:
   struct Capture {
     std::uint32_t zone_id = 0;
+    Point origin;
     Point position;
   };
 
