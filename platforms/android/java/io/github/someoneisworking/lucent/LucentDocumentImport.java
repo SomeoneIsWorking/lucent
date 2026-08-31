@@ -5,6 +5,7 @@ import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.ParcelFileDescriptor;
 import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
 
@@ -383,11 +384,8 @@ public final class LucentDocumentImport {
     }
 
     private void copyFile(Uri source, File target, Budget budget) throws IOException {
-        try (InputStream input = activity.getContentResolver().openInputStream(source);
+        try (InputStream input = openFile(source, target.getName());
              OutputStream output = new FileOutputStream(target)) {
-            if (input == null) {
-                throw new IOException("selected provider could not open a file");
-            }
             byte[] buffer = new byte[limits.bufferBytes];
             for (int count; (count = input.read(buffer)) >= 0; ) {
                 checkCancelled();
@@ -396,6 +394,28 @@ public final class LucentDocumentImport {
                     output.write(buffer, 0, count);
                 }
             }
+        }
+    }
+
+    /**
+     * Opens a document as an ordinary readable file descriptor.
+     *
+     * <p>{@link android.content.ContentResolver#openInputStream(Uri)} takes
+     * Android's typed-asset path. The Waydroid DocumentsUI provider throws
+     * from that path for ordinary tree children even though it can provide a
+     * file descriptor. Staging only needs bytes, not MIME conversion, so use
+     * the provider's plain file contract.</p>
+     */
+    private InputStream openFile(Uri source, String displayName) throws IOException {
+        try {
+            ParcelFileDescriptor descriptor = activity.getContentResolver()
+                    .openFileDescriptor(source, "r");
+            if (descriptor == null) {
+                throw new IOException("selected provider could not open " + displayName);
+            }
+            return new ParcelFileDescriptor.AutoCloseInputStream(descriptor);
+        } catch (RuntimeException error) {
+            throw new IOException("selected provider could not open " + displayName, error);
         }
     }
 
