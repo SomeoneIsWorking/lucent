@@ -212,6 +212,31 @@ public final class LucentDocumentImport {
         return destination;
     }
 
+    /**
+     * Discards a completed import that the title declined to validate.
+     *
+     * <p>A title calls this after its own identity or complete-install check fails. It accepts only
+     * a still-private Lucent staging directory, so a rejected document can never delete the current
+     * validated installation or an arbitrary app-private path.</p>
+     */
+    public synchronized void discard(Result result) throws IOException {
+        if (result == null) {
+            throw new IllegalArgumentException("import result is required");
+        }
+        if (active()) {
+            throw new IOException("cannot discard an import while another import is active");
+        }
+        File root = activity.getFilesDir().getCanonicalFile();
+        File staging = result.stagingDirectory.getCanonicalFile();
+        if (!staging.getParentFile().equals(root) || !staging.getName().startsWith(STAGING_PREFIX)
+                || !staging.isDirectory()) {
+            throw new IOException("import staging is not a Lucent private directory");
+        }
+        if (!deleteRecursively(staging)) {
+            throw new IOException("cannot discard rejected import staging");
+        }
+    }
+
     private void persistReadPermission(Uri source, int grantedFlags) {
         int flags = grantedFlags & Intent.FLAG_GRANT_READ_URI_PERMISSION;
         if (flags == 0) {
