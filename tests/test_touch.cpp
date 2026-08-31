@@ -26,6 +26,8 @@ void capture_and_multitouch() {
   const std::vector<lucent::touch::Contact> moved = {{11, {175, 25}, lucent::touch::Phase::moved}};
   const auto moved_events = router.route(moved);
   CHECK(moved_events.size() == 1 && moved_events[0].zone_id == 1);
+  CHECK(moved_events[0].origin.x == 25 && moved_events[0].origin.y == 25);
+  CHECK(moved_events[0].position.x == 175 && moved_events[0].position.y == 25);
   const std::vector<lucent::touch::Contact> ended = {{11, {175, 25}, lucent::touch::Phase::ended},
                                                      {12, {175, 25}, lucent::touch::Phase::ended}};
   CHECK(router.route(ended).size() == 2);
@@ -40,8 +42,11 @@ void priority_and_cancel() {
                                                      {8, {500, 500}, lucent::touch::Phase::began}};
   const auto events = router.route(began);
   CHECK(events.size() == 1 && events[0].zone_id == 2);
+  const std::vector<lucent::touch::Contact> moved = {{7, {75, 25}, lucent::touch::Phase::moved}};
+  CHECK(router.route(moved).size() == 1);
   const auto canceled = router.cancel();
   CHECK(canceled.size() == 1 && canceled[0].contact_id == 7);
+  CHECK(canceled[0].origin.x == 50 && canceled[0].position.x == 75);
   CHECK(router.cancel().empty());
 }
 } // namespace

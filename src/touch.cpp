@@ -33,14 +33,16 @@ std::vector<Event> Router::route(std::span<const Contact> contacts) {
       });
       if (zone == zones_.end())
         continue;
-      captures_.emplace_back(contact.id, Capture{zone->id, contact.position});
-      events.push_back(Event{contact.id, zone->id, contact.position, Phase::began});
+      captures_.emplace_back(contact.id, Capture{zone->id, contact.position, contact.position});
+      events.push_back(
+          Event{contact.id, zone->id, contact.position, contact.position, Phase::began});
       continue;
     }
     if (capture == captures_.end())
       continue;
+    events.push_back(Event{contact.id, capture->second.zone_id, contact.position,
+                           capture->second.origin, contact.phase});
     capture->second.position = contact.position;
-    events.push_back(Event{contact.id, capture->second.zone_id, contact.position, contact.phase});
     if (contact.phase == Phase::ended || contact.phase == Phase::canceled)
       captures_.erase(capture);
   }
@@ -51,8 +53,8 @@ std::vector<Event> Router::cancel() {
   std::vector<Event> events;
   events.reserve(captures_.size());
   for (const auto &entry : captures_)
-    events.push_back(
-        Event{entry.first, entry.second.zone_id, entry.second.position, Phase::canceled});
+    events.push_back(Event{entry.first, entry.second.zone_id, entry.second.position,
+                           entry.second.origin, Phase::canceled});
   captures_.clear();
   return events;
 }
