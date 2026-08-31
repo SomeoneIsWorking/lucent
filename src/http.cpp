@@ -1,10 +1,10 @@
 #include "lucent/http.h"
 
+#include "http_socket.h"
 #include "lucent/log.h"
 
 #include <algorithm>
 #include <atomic>
-#include <cerrno>
 #include <charconv>
 #include <condition_variable>
 #include <cstring>
@@ -14,17 +14,6 @@
 #include <thread>
 #include <unordered_set>
 #include <utility>
-
-#include <arpa/inet.h>
-#include <fcntl.h>
-#include <netinet/in.h>
-#include <sys/socket.h>
-#include <sys/time.h>
-#include <unistd.h>
-
-#ifndef MSG_NOSIGNAL
-#define MSG_NOSIGNAL 0
-#endif
 
 // Consumers may build with -fno-exceptions (PCSX2 does). Handler dispatch and
 // thread creation degrade to direct calls; without exceptions a failure there
@@ -44,28 +33,11 @@ struct ReadResult {
   std::string error;
 };
 
-void close_socket(int socket) {
-  if (socket >= 0)
-    close(socket);
-}
-
-void set_close_on_exec(int socket) {
-  const int flags = fcntl(socket, F_GETFD);
-  if (flags >= 0)
-    fcntl(socket, F_SETFD, flags | FD_CLOEXEC);
-}
-
-void set_socket_timeouts(int socket) {
-  constexpr timeval timeout{5, 0};
-  setsockopt(socket, SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
-  setsockopt(socket, SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
-}
-
-bool send_all(int socket, const void *bytes, std::size_t size) {
+bool send_all(detail::Socket socket, const void *bytes, std::size_t size) {
   const char *cursor = static_cast<const char *>(bytes);
   while (size != 0) {
-    const ssize_t sent = send(socket, cursor, size, MSG_NOSIGNAL);
-    if (sent < 0 && errno == EINTR)
+    const std::ptrdiff_t sent = detail::send_bytes(socket, cursor, size);
+    if (sent < 0 && detail::socket_error_interrupted(detail::last_socket_error()))
       continue;
     if (sent <= 0)
       return false;
@@ -75,7 +47,7 @@ bool send_all(int socket, const void *bytes, std::size_t size) {
   return true;
 }
 
-bool send_response(int socket, const Response &response) {
+bool send_response(detail::Socket socket, const Response &response) {
   std::error_code error;
   const std::uintmax_t file_size =
       response.file_path.empty() ? 0 : std::filesystem::file_size(response.file_path, error);
@@ -133,13 +105,13 @@ std::string_view trim(std::string_view value) {
   return value;
 }
 
-bool read_more(int socket, std::string &wire, ReadResult &result) {
+bool read_more(detail::Socket socket, std::string &wire, ReadResult &result) {
   char block[2048];
-  ssize_t count = -1;
+  std::ptrdiff_t count = -1;
   do {
-    count = recv(socket, block, sizeof(block), 0);
-  } while (count < 0 && errno == EINTR);
-  if (count < 0 && (errno == EAGAIN || errno == EWOULDBLOCK)) {
+    count = detail::receive_bytes(socket, block, sizeof(block));
+  } while (count < 0 && detail::socket_error_interrupted(detail::last_socket_error()));
+  if (count < 0 && detail::socket_error_would_block(detail::last_socket_error())) {
     result.status = 408;
     result.reason = "Request Timeout";
     result.error = "request timed out";
@@ -153,7 +125,8 @@ bool read_more(int socket, std::string &wire, ReadResult &result) {
   return true;
 }
 
-bool read_request(int socket, const ServerOptions &options, Request &request, ReadResult &result) {
+bool read_request(detail::Socket socket, const ServerOptions &options, Request &request,
+                  ReadResult &result) {
   std::string wire;
   wire.reserve(std::min<std::size_t>(options.max_header_bytes, 2048));
   std::size_t header_end = std::string::npos;
@@ -288,26 +261,26 @@ struct detail::ServerState {
   ServerOptions options;
   Handler handler;
   std::atomic<bool> running{false};
-  std::atomic<int> listener{-1};
+  std::atomic<detail::Socket> listener{detail::kInvalidSocket};
   std::atomic<std::uint16_t> bound_port{0};
   std::thread accept_thread;
   std::mutex clients_mutex;
   std::condition_variable clients_stopped;
-  std::unordered_set<int> clients;
+  std::unordered_set<detail::Socket> clients;
 };
 
 namespace {
 
-void finish_client(const std::shared_ptr<detail::ServerState> &state, int client) {
+void finish_client(const std::shared_ptr<detail::ServerState> &state, detail::Socket client) {
   {
     std::lock_guard lock(state->clients_mutex);
     state->clients.erase(client);
   }
-  close_socket(client);
+  detail::close_socket(client);
   state->clients_stopped.notify_all();
 }
 
-void serve_client(const std::shared_ptr<detail::ServerState> &state, int client) {
+void serve_client(const std::shared_ptr<detail::ServerState> &state, detail::Socket client) {
   Request request;
   ReadResult result;
   if (!read_request(client, state->options, request, result)) {
@@ -335,20 +308,22 @@ void serve_client(const std::shared_ptr<detail::ServerState> &state, int client)
 
 void accept_connections(const std::shared_ptr<detail::ServerState> &state) {
   while (state->running.load(std::memory_order_acquire)) {
-    const int listener = state->listener.load(std::memory_order_acquire);
-    if (listener < 0)
+    const detail::Socket listener = state->listener.load(std::memory_order_acquire);
+    if (detail::is_invalid_socket(listener))
       break;
-    const int client = accept(listener, nullptr, nullptr);
-    if (client < 0 && errno == EINTR)
+    const detail::Socket client = detail::accept_socket(listener);
+    const int accept_error = detail::last_socket_error();
+    if (detail::is_invalid_socket(client) && detail::socket_error_interrupted(accept_error))
       continue;
-    if (client < 0) {
+    if (detail::is_invalid_socket(client)) {
       if (!state->running.load(std::memory_order_acquire))
         break;
-      lucent::log(Level::Warn, "http", "accept failed (errno " + std::to_string(errno) + ")");
+      lucent::log(Level::Warn, "http",
+                  "accept failed (socket error " + std::to_string(accept_error) + ")");
       continue;
     }
-    set_close_on_exec(client);
-    set_socket_timeouts(client);
+    detail::set_close_on_exec(client);
+    detail::set_socket_timeouts(client);
 
     bool accepted = false;
     {
@@ -361,7 +336,7 @@ void accept_connections(const std::shared_ptr<detail::ServerState> &state) {
     }
     if (!accepted) {
       send_response(client, error_response(503, "Service Unavailable", "server is busy"));
-      close_socket(client);
+      detail::close_socket(client);
       continue;
     }
 #if LUCENT_EXCEPTIONS
@@ -455,37 +430,44 @@ bool Server::start() {
     lucent::log(Level::Error, "http", "refusing invalid server options");
     return false;
   }
-
-  const int listener = socket(AF_INET, SOCK_STREAM, 0);
-  if (listener < 0) {
-    lucent::log(Level::Error, "http",
-                "could not create listener (errno " + std::to_string(errno) + ")");
+  if (!detail::initialize_socket_runtime()) {
+    lucent::log(Level::Error, "http", "could not initialize the socket runtime");
     return false;
   }
-  set_close_on_exec(listener);
-  const int reuse = 1;
-  setsockopt(listener, SOL_SOCKET, SO_REUSEADDR, &reuse, sizeof(reuse));
+
+  const detail::Socket listener = detail::create_tcp_socket();
+  if (detail::is_invalid_socket(listener)) {
+    lucent::log(Level::Error, "http",
+                "could not create listener (socket error " +
+                    std::to_string(detail::last_socket_error()) + ")");
+    return false;
+  }
+  detail::set_close_on_exec(listener);
+  detail::set_reuse_address(listener);
 
   sockaddr_in address{};
   address.sin_family = AF_INET;
   address.sin_port = htons(state_->options.port);
   const bool local_network = state_->options.listen_scope == ListenScope::LocalNetwork;
   address.sin_addr.s_addr = htonl(local_network ? INADDR_ANY : INADDR_LOOPBACK);
-  if (bind(listener, reinterpret_cast<const sockaddr *>(&address), sizeof(address)) != 0 ||
-      listen(listener, state_->options.backlog) != 0) {
+  if (bind(detail::native_socket(listener), reinterpret_cast<const sockaddr *>(&address),
+           sizeof(address)) != 0 ||
+      listen(detail::native_socket(listener), state_->options.backlog) != 0) {
     lucent::log(Level::Error, "http",
                 "could not bind " + std::string(local_network ? "local-network" : "loopback") +
-                    " listener on port " + std::to_string(state_->options.port) + " (errno " +
-                    std::to_string(errno) + ")");
-    close_socket(listener);
+                    " listener on port " + std::to_string(state_->options.port) +
+                    " (socket error " + std::to_string(detail::last_socket_error()) + ")");
+    detail::close_socket(listener);
     return false;
   }
 
-  socklen_t address_size = sizeof(address);
-  if (getsockname(listener, reinterpret_cast<sockaddr *>(&address), &address_size) != 0) {
+  detail::SocketLength address_size = sizeof(address);
+  if (getsockname(detail::native_socket(listener), reinterpret_cast<sockaddr *>(&address),
+                  &address_size) != 0) {
     lucent::log(Level::Error, "http",
-                "could not read bound listener address (errno " + std::to_string(errno) + ")");
-    close_socket(listener);
+                "could not read bound listener address (socket error " +
+                    std::to_string(detail::last_socket_error()) + ")");
+    detail::close_socket(listener);
     return false;
   }
   state_->listener.store(listener, std::memory_order_release);
@@ -496,9 +478,9 @@ bool Server::start() {
     state_->accept_thread = std::thread(accept_connections, state_);
   } catch (const std::system_error &error) {
     state_->running.store(false, std::memory_order_release);
-    state_->listener.store(-1, std::memory_order_release);
+    state_->listener.store(detail::kInvalidSocket, std::memory_order_release);
     state_->bound_port.store(0, std::memory_order_release);
-    close_socket(listener);
+    detail::close_socket(listener);
     lucent::log(Level::Error, "http",
                 std::string{"could not start listener thread: "} + error.what());
     return false;
@@ -516,17 +498,18 @@ bool Server::start() {
 void Server::stop() {
   if (!state_->running.exchange(false, std::memory_order_acq_rel))
     return;
-  const int listener = state_->listener.exchange(-1, std::memory_order_acq_rel);
-  if (listener >= 0) {
-    shutdown(listener, SHUT_RDWR);
-    close_socket(listener);
+  const detail::Socket listener =
+      state_->listener.exchange(detail::kInvalidSocket, std::memory_order_acq_rel);
+  if (!detail::is_invalid_socket(listener)) {
+    detail::shutdown_socket(listener);
+    detail::close_socket(listener);
   }
   if (state_->accept_thread.joinable())
     state_->accept_thread.join();
 
   std::unique_lock lock(state_->clients_mutex);
-  for (const int client : state_->clients)
-    shutdown(client, SHUT_RDWR);
+  for (const detail::Socket client : state_->clients)
+    detail::shutdown_socket(client);
   state_->clients_stopped.wait(lock, [this] { return state_->clients.empty(); });
   state_->bound_port.store(0, std::memory_order_release);
 }
