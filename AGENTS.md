@@ -14,8 +14,8 @@ that several projects would otherwise reimplement; its core remains dependency-f
   actions; do not put title-specific controls in Lucent.
 - `platform` owns portable per-application user-data directory resolution and private directory
   creation. Its Android shell provides the app-private root through the C ABI and owns persisted SAF
-  read grants plus bounded private staging; consumers own setup wording, install validation, archive
-  policy, and publication after validation.
+  read grants plus bounded private staging and promotion; consumers own setup wording, install
+  validation, archive policy, and the decision to promote after validation.
 - `content` owns dependency-free streaming content digests. Consumers own the expected identity and
   complete-install policy.
 - `zip` owns safe ZIP entry discovery, bounded extraction, and exactly-one candidate selection for

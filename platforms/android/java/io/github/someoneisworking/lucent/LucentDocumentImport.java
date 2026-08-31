@@ -60,6 +60,7 @@ public final class LucentDocumentImport {
     }
 
     private static final String STAGING_PREFIX = "lucent-import-";
+    private static final String PREVIOUS_PREFIX = ".lucent-previous-";
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final Activity activity;
@@ -166,8 +167,49 @@ public final class LucentDocumentImport {
         for (File candidate : candidates) {
             if (candidate.getName().startsWith(STAGING_PREFIX)) {
                 deleteRecursively(candidate);
+            } else if (candidate.getName().startsWith(PREVIOUS_PREFIX)) {
+                recoverPreviousSelection(candidate);
             }
         }
+    }
+
+    /**
+     * Publishes a title-validated import under one app-private leaf name.
+     *
+     * <p>The title must validate {@code result} completely before calling this method. The old
+     * selection remains intact until the staged directory is ready to replace it; an interrupted
+     * replacement is recovered by {@link #cleanStaleImports()} on the next startup.</p>
+     */
+    public synchronized File promoteValidated(Result result, String destinationName) throws IOException {
+        if (result == null) {
+            throw new IllegalArgumentException("import result is required");
+        }
+        validateLeafName(destinationName);
+        File root = activity.getFilesDir().getCanonicalFile();
+        File staging = result.stagingDirectory.getCanonicalFile();
+        if (!staging.getParentFile().equals(root) || !staging.getName().startsWith(STAGING_PREFIX)
+                || !staging.isDirectory()) {
+            throw new IOException("import staging is not a Lucent private directory");
+        }
+        File destination = privateChild(root, destinationName);
+        File previous = privateChild(root, PREVIOUS_PREFIX + destinationName);
+        if (previous.exists()) {
+            throw new IOException("previous selection recovery is pending");
+        }
+        boolean hadPrevious = destination.exists();
+        if (hadPrevious && !destination.renameTo(previous)) {
+            throw new IOException("cannot preserve the current validated selection");
+        }
+        if (!staging.renameTo(destination)) {
+            if (hadPrevious && !previous.renameTo(destination)) {
+                throw new IOException("cannot publish the import or restore the previous selection");
+            }
+            throw new IOException("cannot publish the validated import");
+        }
+        if (hadPrevious && !deleteRecursively(previous)) {
+            throw new IOException("published import, but could not retire the previous selection");
+        }
+        return destination;
     }
 
     private void persistReadPermission(Uri source, int grantedFlags) {
@@ -214,6 +256,32 @@ public final class LucentDocumentImport {
             }
         }
         throw new IOException("cannot create private import staging");
+    }
+
+    private static File privateChild(File root, String name) throws IOException {
+        File child = new File(root, name).getCanonicalFile();
+        if (!child.getParentFile().equals(root)) {
+            throw new IOException("private destination escapes the app data root");
+        }
+        return child;
+    }
+
+    private void recoverPreviousSelection(File previous) {
+        String destinationName = previous.getName().substring(PREVIOUS_PREFIX.length());
+        try {
+            validateLeafName(destinationName);
+            File root = activity.getFilesDir().getCanonicalFile();
+            File destination = privateChild(root, destinationName);
+            if (destination.exists()) {
+                if (!deleteRecursively(previous)) {
+                    throw new IOException("cannot retire an interrupted previous selection");
+                }
+            } else if (!previous.renameTo(destination)) {
+                throw new IOException("cannot restore an interrupted previous selection");
+            }
+        } catch (IOException error) {
+            throw new IllegalStateException("cannot recover interrupted Lucent import promotion", error);
+        }
     }
 
     private void copyTree(Uri tree, String parentId, File destination, Budget budget) throws IOException {
