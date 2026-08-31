@@ -3,13 +3,17 @@ id: C001
 kind: claim
 status: holds
 created: 2026-08-20
-tags: 
-depends: src/http.cpp#read_request, src/http.cpp#accept_connections, src/http.cpp#Server::start
+tags:
+depends: src/http.cpp#Server::start
+reconfirmed: 2026-08-31
+verified_at: 2026-08-31 15:09:38+00:00
 ---
 
 ## Claim
 
-Lucent's HTTP server binds a bounded loopback control channel, rejects malformed and oversized requests before dispatch, and serves connections concurrently
+Lucent's HTTP server defaults to a bounded loopback control channel, rejects malformed and oversized
+requests before dispatch, and serves connections concurrently. A consumer can explicitly request a
+local-network listener for an authenticated, user-visible sharing route.
 
 ## Evidence
 
@@ -17,4 +21,10 @@ scratch/build-http/lucent_http_tests: POST /echo returned 200 with the parsed me
 
 ## What would falsify it
 
-Any valid request fails, malformed or oversized traffic reaches the handler, the listener becomes remotely reachable, or one blocked handler prevents another connection from completing.
+Any valid request fails, malformed or oversized traffic reaches the handler, a default listener
+accepts a connection addressed to a non-loopback interface, an explicitly local-network listener
+does not accept one, or one blocked handler prevents another connection from completing.
+
+## Re-confirmed 2026-08-31
+
+2026-08-31 lucent_http_tests used the machine non-loopback IPv4 address: default Loopback refused it, explicit LocalNetwork accepted it, and malformed/body-limit/concurrent dispatch tests passed.

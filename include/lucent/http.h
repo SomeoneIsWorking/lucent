@@ -41,6 +41,12 @@ struct FormField {
   std::string value;
 };
 
+// Loopback is the safe default for diagnostics and local control channels.
+// LocalNetwork is deliberately explicit: it listens on every IPv4 interface,
+// so the consumer must authenticate every route and provide a visible way to
+// stop sharing.
+enum class ListenScope { Loopback, LocalNetwork };
+
 // Decodes application/x-www-form-urlencoded data. Malformed percent escapes are refused and named
 // in `error`; an empty field between separators is ignored.
 bool parse_form_urlencoded(std::string_view encoded, std::vector<FormField> &fields,
@@ -48,6 +54,7 @@ bool parse_form_urlencoded(std::string_view encoded, std::vector<FormField> &fie
 
 struct ServerOptions {
   std::uint16_t port = 0;
+  ListenScope listen_scope = ListenScope::Loopback;
   std::size_t max_header_bytes = 16 * 1024;
   std::size_t max_body_bytes = 1024 * 1024;
   std::size_t max_connections = 8;
@@ -56,10 +63,10 @@ struct ServerOptions {
 
 using Handler = std::function<Response(const Request &)>;
 
-// Owns a loopback-only listener. Connections are handled concurrently up to max_connections so a
-// long-running probe does not block input or status requests. Each connection carries one request
-// and one response; keep-alive and chunked transfer encoding are deliberately outside this control
-// channel's scope.
+// Owns a bounded HTTP listener. It is loopback-only unless options explicitly select LocalNetwork.
+// Connections are handled concurrently up to max_connections so a long-running probe does not block
+// input or status requests. Each connection carries one request and one response; keep-alive and
+// chunked transfer encoding are deliberately outside this control channel's scope.
 class Server {
 public:
   Server(ServerOptions options, Handler handler);

@@ -5,11 +5,13 @@
 #include <cstring>
 #include <future>
 #include <iostream>
+#include <optional>
 #include <string>
 #include <thread>
 #include <vector>
 
 #include <arpa/inet.h>
+#include <ifaddrs.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
@@ -36,21 +38,23 @@ bool send_all(int socket, std::string_view bytes) {
   return true;
 }
 
-std::string request(std::uint16_t port, std::string_view wire) {
+std::optional<std::string> try_request(std::uint16_t port, in_addr address_value,
+                                       std::string_view wire) {
   const int client = socket(AF_INET, SOCK_STREAM, 0);
-  CHECK(client >= 0);
   if (client < 0)
-    return {};
+    return std::nullopt;
 
   sockaddr_in address{};
   address.sin_family = AF_INET;
   address.sin_port = htons(port);
-  address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-  CHECK(connect(client, reinterpret_cast<const sockaddr *>(&address), sizeof(address)) == 0);
-  if (!send_all(client, wire)) {
-    CHECK(false);
+  address.sin_addr = address_value;
+  if (connect(client, reinterpret_cast<const sockaddr *>(&address), sizeof(address)) != 0) {
     close(client);
-    return {};
+    return std::nullopt;
+  }
+  if (!send_all(client, wire)) {
+    close(client);
+    return std::nullopt;
   }
   shutdown(client, SHUT_WR);
 
@@ -64,6 +68,32 @@ std::string request(std::uint16_t port, std::string_view wire) {
   }
   close(client);
   return response;
+}
+
+std::string request(std::uint16_t port, std::string_view wire) {
+  const auto response = try_request(port, in_addr{htonl(INADDR_LOOPBACK)}, wire);
+  CHECK(response.has_value());
+  return response.value_or(std::string{});
+}
+
+std::optional<in_addr> local_network_address() {
+  ifaddrs *interfaces = nullptr;
+  if (getifaddrs(&interfaces) != 0)
+    return std::nullopt;
+
+  std::optional<in_addr> result;
+  for (const ifaddrs *interface = interfaces; interface != nullptr;
+       interface = interface->ifa_next) {
+    if (interface->ifa_addr == nullptr || interface->ifa_addr->sa_family != AF_INET)
+      continue;
+    const auto *address = reinterpret_cast<const sockaddr_in *>(interface->ifa_addr);
+    if (address->sin_addr.s_addr != htonl(INADDR_LOOPBACK)) {
+      result = address->sin_addr;
+      break;
+    }
+  }
+  freeifaddrs(interfaces);
+  return result;
 }
 
 std::string_view body(std::string_view response) {
@@ -152,11 +182,42 @@ void test_server_transport_and_concurrency() {
   CHECK(server.port() == 0);
 }
 
+void test_local_network_scope_is_explicit() {
+  const auto network_address = local_network_address();
+  if (!network_address.has_value()) {
+    std::cout << "SKIP local-network HTTP discriminator: no non-loopback IPv4 interface\n";
+    return;
+  }
+
+  const std::string wire = "GET /share HTTP/1.1\r\nHost: lan\r\n\r\n";
+  lucent::http::ServerOptions loopback_options;
+  loopback_options.port = 0;
+  lucent::http::Server loopback(loopback_options, [](const lucent::http::Request &) {
+    return lucent::http::Response::text(200, "OK", "loopback");
+  });
+  CHECK(loopback.start());
+  CHECK(!try_request(loopback.port(), *network_address, wire).has_value());
+  loopback.stop();
+
+  lucent::http::ServerOptions network_options;
+  network_options.port = 0;
+  network_options.listen_scope = lucent::http::ListenScope::LocalNetwork;
+  lucent::http::Server network(network_options, [](const lucent::http::Request &) {
+    return lucent::http::Response::text(200, "OK", "shared");
+  });
+  CHECK(network.start());
+  const auto response = try_request(network.port(), *network_address, wire);
+  CHECK(response.has_value());
+  CHECK(response.has_value() && body(*response) == "shared");
+  network.stop();
+}
+
 } // namespace
 
 int main() {
   test_form_decoder();
   test_server_transport_and_concurrency();
+  test_local_network_scope_is_explicit();
   if (g_failures == 0) {
     std::cout << "all HTTP tests passed\n";
   } else {

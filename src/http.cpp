@@ -438,12 +438,14 @@ bool Server::start() {
   sockaddr_in address{};
   address.sin_family = AF_INET;
   address.sin_port = htons(state_->options.port);
-  address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+  const bool local_network = state_->options.listen_scope == ListenScope::LocalNetwork;
+  address.sin_addr.s_addr = htonl(local_network ? INADDR_ANY : INADDR_LOOPBACK);
   if (bind(listener, reinterpret_cast<const sockaddr *>(&address), sizeof(address)) != 0 ||
       listen(listener, state_->options.backlog) != 0) {
     lucent::log(Level::Error, "http",
-                "could not bind loopback listener on port " + std::to_string(state_->options.port) +
-                    " (errno " + std::to_string(errno) + ")");
+                "could not bind " + std::string(local_network ? "local-network" : "loopback") +
+                    " listener on port " + std::to_string(state_->options.port) + " (errno " +
+                    std::to_string(errno) + ")");
     close_socket(listener);
     return false;
   }
@@ -474,7 +476,9 @@ bool Server::start() {
   state_->accept_thread = std::thread(accept_connections, state_);
 #endif
   lucent::log(Level::Info, "http",
-              "loopback server listening on http://127.0.0.1:" + std::to_string(port()));
+              std::string(local_network ? "local-network" : "loopback") + " server listening on " +
+                  (local_network ? "all IPv4 interfaces:" : "http://127.0.0.1:") +
+                  std::to_string(port()));
   return true;
 }
 
