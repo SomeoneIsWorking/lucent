@@ -6,6 +6,16 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(CMAKE_CXX_EXTENSIONS OFF)
 set(CMAKE_EXPORT_COMPILE_COMMANDS ON)
 
+set(LUCENT_FORMAT_BACKEND "auto" CACHE STRING "Logger formatter: auto, std, fmt, or none")
+set_property(CACHE LUCENT_FORMAT_BACKEND PROPERTY STRINGS auto std fmt none)
+if(LUCENT_FORMAT_BACKEND STREQUAL "fmt")
+  find_package(fmt CONFIG REQUIRED)
+elseif(NOT LUCENT_FORMAT_BACKEND STREQUAL "auto" AND
+       NOT LUCENT_FORMAT_BACKEND STREQUAL "std" AND
+       NOT LUCENT_FORMAT_BACKEND STREQUAL "none")
+  message(FATAL_ERROR "LUCENT_FORMAT_BACKEND must be auto, std, fmt, or none")
+endif()
+
 add_library(lucent STATIC
   src/config.cpp
   src/content.cpp
@@ -40,6 +50,12 @@ endif()
 
 find_package(Threads REQUIRED)
 target_link_libraries(lucent PUBLIC Threads::Threads)
+if(LUCENT_FORMAT_BACKEND STREQUAL "fmt")
+  target_link_libraries(lucent PUBLIC fmt::fmt)
+  target_compile_definitions(lucent PUBLIC LUCENT_USE_FMT=1 LUCENT_DISABLE_STD_FORMAT=1)
+elseif(LUCENT_FORMAT_BACKEND STREQUAL "none")
+  target_compile_definitions(lucent PUBLIC LUCENT_DISABLE_STD_FORMAT=1)
+endif()
 
 target_include_directories(lucent PUBLIC
   $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>

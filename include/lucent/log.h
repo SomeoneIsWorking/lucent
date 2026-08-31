@@ -60,6 +60,15 @@
 #define LUCENT_HAS_STD_FORMAT 0
 #endif
 
+#if !LUCENT_HAS_STD_FORMAT && defined(LUCENT_USE_FMT)
+#include <fmt/format.h>
+#define LUCENT_HAS_FORMAT 1
+#elif LUCENT_HAS_STD_FORMAT
+#define LUCENT_HAS_FORMAT 1
+#else
+#define LUCENT_HAS_FORMAT 0
+#endif
+
 namespace lucent {
 
 enum class Level { Debug, Info, Warn, Error };
@@ -124,14 +133,29 @@ private:
 // level at runtime.
 void log(Level level, std::string_view channel, std::string_view message);
 
+#if LUCENT_HAS_FORMAT
+namespace detail {
+#if LUCENT_HAS_STD_FORMAT
+template <class... Args> using FormatString = std::format_string<Args...>;
+template <class... Args> std::string format(FormatString<Args...> fmt, Args &&...args) {
+  return std::format(fmt, std::forward<Args>(args)...);
+}
+#else
+template <class... Args> using FormatString = fmt::format_string<Args...>;
+template <class... Args> std::string format(FormatString<Args...> fmt, Args &&...args) {
+  return fmt::format(fmt, std::forward<Args>(args)...);
+}
+#endif
+} // namespace detail
+
 // Format a message WITHOUT emitting it — the same std::format semantics as the level helpers, for
 // the caller that composes fragments conditionally (a line whose middle exists only when a field is
 // meaningful) and then hands the whole thing to log()/info(). Returning the string keeps those call
 // sites inside lucent's formatting dialect instead of reaching for snprintf alongside it.
-template <class... Args>
-std::string format(std::format_string<Args...> fmt, Args&&... args) {
-  return std::format(fmt, std::forward<Args>(args)...);
+template <class... Args> std::string format(detail::FormatString<Args...> fmt, Args &&...args) {
+  return detail::format(fmt, std::forward<Args>(args)...);
 }
+#endif
 
 namespace detail {
 // The gate behind debug(). Free when no channel is enabled anywhere; a hashed lookup under a mutex
@@ -147,46 +171,46 @@ bool channel_enabled(std::string_view channel);
 void rearm_channels_from_env();
 } // namespace detail
 
-#if LUCENT_HAS_STD_FORMAT
+#if LUCENT_HAS_FORMAT
 template <class... Args>
-void info(std::string_view channel, std::format_string<Args...> fmt, Args &&...args) {
-  log(Level::Info, channel, std::format(fmt, std::forward<Args>(args)...));
+void info(std::string_view channel, detail::FormatString<Args...> fmt, Args &&...args) {
+  log(Level::Info, channel, detail::format(fmt, std::forward<Args>(args)...));
 }
 template <class... Args>
-void warn(std::string_view channel, std::format_string<Args...> fmt, Args &&...args) {
-  log(Level::Warn, channel, std::format(fmt, std::forward<Args>(args)...));
+void warn(std::string_view channel, detail::FormatString<Args...> fmt, Args &&...args) {
+  log(Level::Warn, channel, detail::format(fmt, std::forward<Args>(args)...));
 }
 template <class... Args>
-void error(std::string_view channel, std::format_string<Args...> fmt, Args &&...args) {
-  log(Level::Error, channel, std::format(fmt, std::forward<Args>(args)...));
+void error(std::string_view channel, detail::FormatString<Args...> fmt, Args &&...args) {
+  log(Level::Error, channel, detail::format(fmt, std::forward<Args>(args)...));
 }
 // Channel-gated. The format arguments are NOT evaluated when the channel is off.
 template <class... Args>
-void debug(std::string_view channel, std::format_string<Args...> fmt, Args &&...args) {
+void debug(std::string_view channel, detail::FormatString<Args...> fmt, Args &&...args) {
   if (!detail::channel_enabled(channel))
     return;
-  log(Level::Debug, channel, std::format(fmt, std::forward<Args>(args)...));
+  log(Level::Debug, channel, detail::format(fmt, std::forward<Args>(args)...));
 }
 
 // The same four, taking a resolved Channel. Identical output; the debug() one gates on the cached
 // word instead of hashing the name. Migrating a call site is a matter of hoisting the literal.
 template <class... Args>
-void info(const Channel &channel, std::format_string<Args...> fmt, Args &&...args) {
-  log(Level::Info, channel.name(), std::format(fmt, std::forward<Args>(args)...));
+void info(const Channel &channel, detail::FormatString<Args...> fmt, Args &&...args) {
+  log(Level::Info, channel.name(), detail::format(fmt, std::forward<Args>(args)...));
 }
 template <class... Args>
-void warn(const Channel &channel, std::format_string<Args...> fmt, Args &&...args) {
-  log(Level::Warn, channel.name(), std::format(fmt, std::forward<Args>(args)...));
+void warn(const Channel &channel, detail::FormatString<Args...> fmt, Args &&...args) {
+  log(Level::Warn, channel.name(), detail::format(fmt, std::forward<Args>(args)...));
 }
 template <class... Args>
-void error(const Channel &channel, std::format_string<Args...> fmt, Args &&...args) {
-  log(Level::Error, channel.name(), std::format(fmt, std::forward<Args>(args)...));
+void error(const Channel &channel, detail::FormatString<Args...> fmt, Args &&...args) {
+  log(Level::Error, channel.name(), detail::format(fmt, std::forward<Args>(args)...));
 }
 template <class... Args>
-void debug(const Channel &channel, std::format_string<Args...> fmt, Args &&...args) {
+void debug(const Channel &channel, detail::FormatString<Args...> fmt, Args &&...args) {
   if (!channel.enabled())
     return;
-  log(Level::Debug, channel.name(), std::format(fmt, std::forward<Args>(args)...));
+  log(Level::Debug, channel.name(), detail::format(fmt, std::forward<Args>(args)...));
 }
 #endif
 
@@ -216,9 +240,9 @@ void set_sink(Sink sink);
 // Truncation-safe: past the cap it appends "..." and stops accepting more.
 class Line {
 public:
-#if LUCENT_HAS_STD_FORMAT
-  template <class... Args> Line &add(std::format_string<Args...> fmt, Args &&...args) {
-    append(std::format(fmt, std::forward<Args>(args)...));
+#if LUCENT_HAS_FORMAT
+  template <class... Args> Line &add(detail::FormatString<Args...> fmt, Args &&...args) {
+    append(detail::format(fmt, std::forward<Args>(args)...));
     return *this;
   }
 #endif
