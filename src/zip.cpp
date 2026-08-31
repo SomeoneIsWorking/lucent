@@ -5,7 +5,6 @@
 #include <cstdint>
 #include <exception>
 #include <fstream>
-#include <iterator>
 #include <limits>
 #include <span>
 #include <system_error>
@@ -15,11 +14,20 @@
 
 #include <zlib.h>
 
+#if defined(_WIN32)
+#define WIN32_LEAN_AND_MEAN
+#include <windows.h>
+#else
+#include <fcntl.h>
+#include <sys/mman.h>
+#include <unistd.h>
+#endif
+
 namespace lucent::zip {
 namespace {
 
-using Bytes = std::vector<std::uint8_t>;
 using ByteView = std::span<const std::uint8_t>;
+using Bytes = std::vector<std::uint8_t>;
 
 struct Budget {
   std::uint64_t archive_bytes = 0;
@@ -103,34 +111,95 @@ std::string normalized_name(std::string_view name) {
   return normalized;
 }
 
-bool read_file(const std::filesystem::path &path, Bytes &bytes, const ExtractionLimits &limits,
-               std::string &error) {
-  std::error_code status;
-  const std::uintmax_t size = std::filesystem::file_size(path, status);
-  if (status) {
-    error = "could not inspect archive size: " + path.string();
-    return false;
+class MappedArchive {
+public:
+  MappedArchive() = default;
+  MappedArchive(const MappedArchive &) = delete;
+  MappedArchive &operator=(const MappedArchive &) = delete;
+
+  ~MappedArchive() { reset(); }
+
+  bool open(const std::filesystem::path &path, const ExtractionLimits &limits, std::string &error) {
+    reset();
+    std::error_code status;
+    const std::uintmax_t size = std::filesystem::file_size(path, status);
+    if (status || size == 0) {
+      error = "could not inspect archive size: " + path.string();
+      return false;
+    }
+    if (size > limits.max_archive_bytes) {
+      error = "archive exceeds the compressed byte limit";
+      return false;
+    }
+    if (size > std::numeric_limits<std::size_t>::max()) {
+      error = "archive cannot be addressed on this platform";
+      return false;
+    }
+    size_ = static_cast<std::size_t>(size);
+#if defined(_WIN32)
+    file_ = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
+                        FILE_ATTRIBUTE_NORMAL, nullptr);
+    if (file_ == INVALID_HANDLE_VALUE) {
+      error = "could not open archive: " + path.string();
+      return false;
+    }
+    mapping_ = CreateFileMappingW(file_, nullptr, PAGE_READONLY, 0, 0, nullptr);
+    if (mapping_ == nullptr) {
+      error = "could not map archive: " + path.string();
+      reset();
+      return false;
+    }
+    data_ = static_cast<const std::uint8_t *>(MapViewOfFile(mapping_, FILE_MAP_READ, 0, 0, 0));
+    if (data_ == nullptr) {
+      error = "could not map archive: " + path.string();
+      reset();
+      return false;
+    }
+#else
+    const int descriptor = ::open(path.c_str(), O_RDONLY | O_CLOEXEC);
+    if (descriptor < 0) {
+      error = "could not open archive: " + path.string();
+      return false;
+    }
+    void *mapping = mmap(nullptr, size_, PROT_READ, MAP_PRIVATE, descriptor, 0);
+    (void)close(descriptor);
+    if (mapping == MAP_FAILED) {
+      error = "could not map archive: " + path.string();
+      return false;
+    }
+    data_ = static_cast<const std::uint8_t *>(mapping);
+#endif
+    return true;
   }
-  if (size > limits.max_archive_bytes) {
-    error = "archive exceeds the compressed byte limit";
-    return false;
+
+  ByteView bytes() const { return {data_, size_}; }
+
+private:
+  void reset() {
+#if defined(_WIN32)
+    if (data_ != nullptr)
+      UnmapViewOfFile(data_);
+    if (mapping_ != nullptr)
+      CloseHandle(mapping_);
+    if (file_ != INVALID_HANDLE_VALUE)
+      CloseHandle(file_);
+    mapping_ = nullptr;
+    file_ = INVALID_HANDLE_VALUE;
+#else
+    if (data_ != nullptr)
+      munmap(const_cast<std::uint8_t *>(data_), size_);
+#endif
+    data_ = nullptr;
+    size_ = 0;
   }
-  std::ifstream input(path, std::ios::binary);
-  if (!input) {
-    error = "could not open archive: " + path.string();
-    return false;
-  }
-  bytes.assign(std::istreambuf_iterator<char>(input), std::istreambuf_iterator<char>());
-  if (input.bad()) {
-    error = "could not read archive: " + path.string();
-    return false;
-  }
-  if (bytes.size() > limits.max_archive_bytes) {
-    error = "archive grew beyond the compressed byte limit while being read";
-    return false;
-  }
-  return true;
-}
+
+  const std::uint8_t *data_ = nullptr;
+  std::size_t size_ = 0;
+#if defined(_WIN32)
+  HANDLE file_ = INVALID_HANDLE_VALUE;
+  HANDLE mapping_ = nullptr;
+#endif
+};
 
 bool reserve_budget(std::uint64_t amount, std::uint64_t limit, std::uint64_t &used,
                     std::string_view error_message, std::string &error) {
@@ -558,10 +627,10 @@ bool extract_unique_install_impl(ByteView archive, const std::filesystem::path &
 bool extract_archive(const std::filesystem::path &archive, const std::filesystem::path &destination,
                      std::vector<std::filesystem::path> &files, std::string &error,
                      ExtractionLimits limits) {
-  Bytes bytes;
+  MappedArchive mapped;
   std::string failure;
-  if (!read_file(archive, bytes, limits, failure) ||
-      !extract_archive(ByteView{bytes}, destination, files, failure, limits)) {
+  if (!mapped.open(archive, limits, failure) ||
+      !extract_archive(mapped.bytes(), destination, files, failure, limits)) {
     error = std::move(failure);
     return false;
   }
@@ -621,11 +690,12 @@ bool extract_unique_install(const std::filesystem::path &archive,
                             const std::filesystem::path &destination, const ContentMatcher &matches,
                             std::filesystem::path &matched_file, std::string &error,
                             ExtractionLimits limits) {
-  Bytes bytes;
+  MappedArchive mapped;
   std::string failure;
   std::filesystem::path selected = matched_file;
-  if (!read_file(archive, bytes, limits, failure) ||
-      !extract_unique_install_impl(bytes, destination, matches, selected, failure, limits)) {
+  if (!mapped.open(archive, limits, failure) ||
+      !extract_unique_install_impl(mapped.bytes(), destination, matches, selected, failure,
+                                   limits)) {
     error = std::move(failure);
     return false;
   }
@@ -652,15 +722,15 @@ bool extract_unique_install(std::span<const std::uint8_t> archive,
 bool extract_install(const std::filesystem::path &archive, const std::filesystem::path &destination,
                      std::string_view required_name, std::filesystem::path &executable,
                      std::string &error, ExtractionLimits limits) {
-  Bytes bytes;
+  MappedArchive mapped;
   std::string failure;
-  if (!read_file(archive, bytes, limits, failure)) {
+  if (!mapped.open(archive, limits, failure)) {
     error = std::move(failure);
     return false;
   }
   Budget budget;
   std::vector<Entry> archive_entries;
-  if (!entries(bytes, archive_entries, limits, budget, failure)) {
+  if (!entries(mapped.bytes(), archive_entries, limits, budget, failure)) {
     error = std::move(failure);
     return false;
   }
@@ -675,7 +745,7 @@ bool extract_install(const std::filesystem::path &archive, const std::filesystem
     return false;
   }
   std::vector<std::filesystem::path> files;
-  if (!extract_atomically(bytes, archive_entries, destination, files, failure)) {
+  if (!extract_atomically(mapped.bytes(), archive_entries, destination, files, failure)) {
     error = std::move(failure);
     return false;
   }
