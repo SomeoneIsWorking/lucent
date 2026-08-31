@@ -181,16 +181,9 @@ public final class LucentDocumentImport {
      * replacement is recovered by {@link #cleanStaleImports()} on the next startup.</p>
      */
     public synchronized File promoteValidated(Result result, String destinationName) throws IOException {
-        if (result == null) {
-            throw new IllegalArgumentException("import result is required");
-        }
         validateLeafName(destinationName);
         File root = activity.getFilesDir().getCanonicalFile();
-        File staging = result.stagingDirectory.getCanonicalFile();
-        if (!staging.getParentFile().equals(root) || !staging.getName().startsWith(STAGING_PREFIX)
-                || !staging.isDirectory()) {
-            throw new IOException("import staging is not a Lucent private directory");
-        }
+        File staging = validatedStaging(result, root);
         File destination = privateChild(root, destinationName);
         File previous = privateChild(root, PREVIOUS_PREFIX + destinationName);
         if (previous.exists()) {
@@ -234,6 +227,30 @@ public final class LucentDocumentImport {
         }
         if (!deleteRecursively(staging)) {
             throw new IOException("cannot discard rejected import staging");
+        }
+    }
+
+    /**
+     * Discards the original selected document from a validated staging directory.
+     *
+     * <p>This is for archive importers that have already extracted and validated their retained
+     * content under the same staging directory. It frees the archive before promotion without
+     * weakening Lucent's all-or-nothing directory publication. Trees have no one source document
+     * and cannot use this operation.</p>
+     */
+    public synchronized void discardValidatedDocument(Result result) throws IOException {
+        if (result == null || result.isTree) {
+            throw new IllegalArgumentException("only a staged document can be discarded");
+        }
+        validateLeafName(result.documentName);
+        File root = activity.getFilesDir().getCanonicalFile();
+        File staging = validatedStaging(result, root);
+        File document = privateChild(staging, result.documentName);
+        if (!document.isFile()) {
+            throw new IOException("staged document is missing");
+        }
+        if (!document.delete()) {
+            throw new IOException("cannot discard the validated source document");
         }
     }
 
@@ -289,6 +306,18 @@ public final class LucentDocumentImport {
             throw new IOException("private destination escapes the app data root");
         }
         return child;
+    }
+
+    private static File validatedStaging(Result result, File root) throws IOException {
+        if (result == null) {
+            throw new IllegalArgumentException("import result is required");
+        }
+        File staging = result.stagingDirectory.getCanonicalFile();
+        if (!staging.getParentFile().equals(root) || !staging.getName().startsWith(STAGING_PREFIX)
+                || !staging.isDirectory()) {
+            throw new IOException("import staging is not a Lucent private directory");
+        }
+        return staging;
     }
 
     private void recoverPreviousSelection(File previous) {
