@@ -279,7 +279,12 @@ public final class LucentDocumentImport {
             File completedStaging = staging;
             String completedName = documentName;
             activity.runOnUiThread(() -> finishSuccess(new Result(completedStaging, completedName, isTree)));
-        } catch (IOException | IllegalArgumentException | SecurityException error) {
+        } catch (IOException | RuntimeException error) {
+            // Android document providers are outside Lucent's control. Some
+            // providers throw unchecked exceptions from openInputStream()
+            // instead of returning a null stream or IOException. This is the
+            // import boundary: discard partial staging and report failure to
+            // the Activity rather than leaving the app process dead.
             if (staging != null) {
                 deleteRecursively(staging);
             }
