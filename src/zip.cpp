@@ -20,6 +20,7 @@
 #else
 #include <fcntl.h>
 #include <sys/mman.h>
+#include <sys/stat.h>
 #include <unistd.h>
 #endif
 
@@ -121,26 +122,19 @@ public:
 
   bool open(const std::filesystem::path &path, const ExtractionLimits &limits, std::string &error) {
     reset();
-    std::error_code status;
-    const std::uintmax_t size = std::filesystem::file_size(path, status);
-    if (status || size == 0) {
-      error = "could not inspect archive size: " + path.string();
-      return false;
-    }
-    if (size > limits.max_archive_bytes) {
-      error = "archive exceeds the compressed byte limit";
-      return false;
-    }
-    if (size > std::numeric_limits<std::size_t>::max()) {
-      error = "archive cannot be addressed on this platform";
-      return false;
-    }
-    size_ = static_cast<std::size_t>(size);
 #if defined(_WIN32)
     file_ = CreateFileW(path.c_str(), GENERIC_READ, FILE_SHARE_READ, nullptr, OPEN_EXISTING,
                         FILE_ATTRIBUTE_NORMAL, nullptr);
     if (file_ == INVALID_HANDLE_VALUE) {
       error = "could not open archive: " + path.string();
+      return false;
+    }
+    LARGE_INTEGER file_size{};
+    if (!GetFileSizeEx(file_, &file_size) || file_size.QuadPart <= 0 ||
+        !set_size(static_cast<std::uintmax_t>(file_size.QuadPart), path, limits, error)) {
+      if (error.empty())
+        error = "could not inspect archive size: " + path.string();
+      reset();
       return false;
     }
     mapping_ = CreateFileMappingW(file_, nullptr, PAGE_READONLY, 0, 0, nullptr);
@@ -161,8 +155,16 @@ public:
       error = "could not open archive: " + path.string();
       return false;
     }
+    struct stat file_status{};
+    if (fstat(descriptor, &file_status) != 0 || file_status.st_size <= 0 ||
+        !set_size(static_cast<std::uintmax_t>(file_status.st_size), path, limits, error)) {
+      if (error.empty())
+        error = "could not inspect archive size: " + path.string();
+      (void)::close(descriptor);
+      return false;
+    }
     void *mapping = mmap(nullptr, size_, PROT_READ, MAP_PRIVATE, descriptor, 0);
-    (void)close(descriptor);
+    (void)::close(descriptor);
     if (mapping == MAP_FAILED) {
       error = "could not map archive: " + path.string();
       return false;
@@ -175,6 +177,24 @@ public:
   ByteView bytes() const { return {data_, size_}; }
 
 private:
+  bool set_size(std::uintmax_t size, const std::filesystem::path &path,
+                const ExtractionLimits &limits, std::string &error) {
+    if (size == 0) {
+      error = "could not inspect archive size: " + path.string();
+      return false;
+    }
+    if (size > limits.max_archive_bytes) {
+      error = "archive exceeds the compressed byte limit";
+      return false;
+    }
+    if (size > std::numeric_limits<std::size_t>::max()) {
+      error = "archive cannot be addressed on this platform";
+      return false;
+    }
+    size_ = static_cast<std::size_t>(size);
+    return true;
+  }
+
   void reset() {
 #if defined(_WIN32)
     if (data_ != nullptr)
