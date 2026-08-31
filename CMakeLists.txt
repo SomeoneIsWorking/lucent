@@ -105,6 +105,38 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     target_link_libraries(lucent_touch_tests PRIVATE lucent)
     add_test(NAME lucent_touch_tests COMMAND lucent_touch_tests)
 
+    # Keep the Android-side contact lifetime state machine executable without requiring an Android
+    # SDK, device, or SDL Java source tree. LucentActivity's MotionEvent adapter is compiled by an
+    # Android consumer; this test owns the platform-independent state it delegates to.
+    find_package(Java COMPONENTS Development QUIET)
+    if(Java_JAVAC_EXECUTABLE)
+      get_filename_component(_lucent_javac "${Java_JAVAC_EXECUTABLE}" REALPATH)
+      get_filename_component(_lucent_java_bin "${_lucent_javac}" DIRECTORY)
+      set(_lucent_java_runtime "${_lucent_java_bin}/java")
+      if(NOT EXISTS "${_lucent_java_runtime}")
+        message(FATAL_ERROR
+          "Lucent found javac at ${Java_JAVAC_EXECUTABLE}, but its matching java runtime is missing")
+      endif()
+      set(_lucent_android_touch_classes "${CMAKE_CURRENT_BINARY_DIR}/android_touch_contacts")
+      set(_lucent_android_touch_test
+        "${CMAKE_CURRENT_SOURCE_DIR}/platforms/android/tests/io/github/someoneisworking/lucent/LucentTouchContactsTest.java")
+      add_custom_command(
+        OUTPUT "${_lucent_android_touch_classes}/io/github/someoneisworking/lucent/LucentTouchContactsTest.class"
+        COMMAND "${CMAKE_COMMAND}" -E make_directory "${_lucent_android_touch_classes}"
+        COMMAND "${_lucent_javac}" --release 17 -d "${_lucent_android_touch_classes}"
+          "${CMAKE_CURRENT_SOURCE_DIR}/platforms/android/java/io/github/someoneisworking/lucent/LucentTouchContacts.java"
+          "${_lucent_android_touch_test}"
+        DEPENDS
+          "${CMAKE_CURRENT_SOURCE_DIR}/platforms/android/java/io/github/someoneisworking/lucent/LucentTouchContacts.java"
+          "${_lucent_android_touch_test}"
+        VERBATIM)
+      add_custom_target(lucent_android_touch_contacts_classes ALL
+        DEPENDS "${_lucent_android_touch_classes}/io/github/someoneisworking/lucent/LucentTouchContactsTest.class")
+      add_test(NAME lucent_android_touch_contacts
+        COMMAND "${_lucent_java_runtime}" -cp "${_lucent_android_touch_classes}"
+          io.github.someoneisworking.lucent.LucentTouchContactsTest)
+    endif()
+
     add_executable(lucent_platform_tests tests/test_platform.cpp)
     target_link_libraries(lucent_platform_tests PRIVATE lucent)
     add_test(NAME lucent_platform_tests COMMAND lucent_platform_tests)

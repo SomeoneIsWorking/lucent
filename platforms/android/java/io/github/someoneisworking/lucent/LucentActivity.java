@@ -2,6 +2,7 @@ package io.github.someoneisworking.lucent;
 
 import android.os.Build;
 import android.os.Bundle;
+import android.view.MotionEvent;
 import android.view.View;
 import android.view.Window;
 import android.view.WindowInsets;
@@ -15,6 +16,18 @@ import org.libsdl.app.SDLActivity;
  * Owns system UI visibility (sticky immersive landscape fullscreen) and graceful task termination.
  */
 public class LucentActivity extends SDLActivity {
+    private final LucentTouchContacts touchContacts = new LucentTouchContacts();
+
+    /**
+     * Installs title-owned contact interpretation without taking over Android or SDL event delivery.
+     *
+     * <p>The listener receives physical-pixel contacts before SDL handles the same event. It must map
+     * those contacts through the title's normal input policy; it must not return Android event-consumed
+     * state or create a second input transport.</p>
+     */
+    public final void setRawTouchListener(LucentTouchContacts.Listener listener) {
+        touchContacts.setListener(listener);
+    }
 
     @Override
     protected void onCreate(Bundle savedInstanceState) {
@@ -29,11 +42,31 @@ public class LucentActivity extends SDLActivity {
     }
 
     @Override
+    public boolean dispatchTouchEvent(MotionEvent event) {
+        captureTouchContacts(event);
+        return super.dispatchTouchEvent(event);
+    }
+
+    @Override
+    protected void onPause() {
+        touchContacts.cancelAll();
+        super.onPause();
+    }
+
+    @Override
     public void onWindowFocusChanged(boolean hasFocus) {
         super.onWindowFocusChanged(hasFocus);
         if (hasFocus) {
             hideSystemUI();
+        } else {
+            touchContacts.cancelAll();
         }
+    }
+
+    @Override
+    protected void onDestroy() {
+        touchContacts.cancelAll();
+        super.onDestroy();
     }
 
     /**
@@ -77,5 +110,40 @@ public class LucentActivity extends SDLActivity {
      */
     public void finishApp(String unused) {
         runOnUiThread(this::finishAndRemoveTask);
+    }
+
+    private void captureTouchContacts(MotionEvent event) {
+        switch (event.getActionMasked()) {
+            case MotionEvent.ACTION_DOWN:
+            case MotionEvent.ACTION_POINTER_DOWN:
+                captureDown(event, event.getActionIndex());
+                break;
+            case MotionEvent.ACTION_MOVE:
+                for (int index = 0; index < event.getPointerCount(); ++index) {
+                    touchContacts.update(
+                            event.getPointerId(index), event.getX(index), event.getY(index),
+                            event.getPressure(index));
+                }
+                break;
+            case MotionEvent.ACTION_UP:
+            case MotionEvent.ACTION_POINTER_UP:
+                captureUp(event, event.getActionIndex());
+                break;
+            case MotionEvent.ACTION_CANCEL:
+                touchContacts.cancelAll();
+                break;
+            default:
+                break;
+        }
+    }
+
+    private void captureDown(MotionEvent event, int index) {
+        touchContacts.down(event.getPointerId(index), event.getX(index), event.getY(index),
+                event.getPressure(index));
+    }
+
+    private void captureUp(MotionEvent event, int index) {
+        touchContacts.up(event.getPointerId(index), event.getX(index), event.getY(index),
+                event.getPressure(index));
     }
 }
