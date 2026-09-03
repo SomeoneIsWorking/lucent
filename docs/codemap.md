@@ -6,7 +6,8 @@ Clang is the verification toolchain; compatible GCC and AppleClang consumers are
 
 | Subsystem | Status | Where | Gap/next |
 |---|---|---|---|
-| Configuration | real, tested | `include/lucent/config.h`, `src/config.cpp` | Cached environment configuration only; no file format |
+| Configuration (environment) | real, tested | `include/lucent/config.h`, `src/config.cpp` | Cached environment configuration only; the primitive `cvar` reads its environment layer from |
+| Layered CVars | real, tested | `include/lucent/cvar.hpp`, `include/lucent/cvar_c.h`, `src/cvar.cpp`, `tests/test_cvar.cpp` | `Var<T>` (bool/long/double/string) with layers default < file (`name = value`) < environment < explicit `--set`; C ABI for C consumers; unknown file keys preserved on rewrite. Modelled on dusklight's ConfigVar. Speedrun layer and change subscriptions not ported yet |
 | Content identity | real, tested | `include/lucent/content.h`, `src/content.cpp`, `tests/test_content.cpp` | Dependency-free SHA-256 for memory and streaming files; consumers own expected digests and title policy |
 | Logging | real, tested | `include/lucent/log.h`, `src/log.cpp`, `tests/test_core_portability.cpp` | Thread-safe text sinks; every stderr, file, and installed-sink record carries a millisecond UTC ISO 8601 timestamp. Raw logging, sinks, channels, and line lifecycle compile without `<format>`; formatted convenience templates are feature-detected. |
 | Bounded HTTP | real, tested | `include/lucent/http.h`, `src/http.cpp` | Loopback is the default. An explicit local-network scope binds all IPv4 interfaces for authenticated, opt-in sharing routes; Lucent supplies no authentication or TLS. Responses can stream a consumer-authorised regular file in bounded blocks; Lucent does not choose files or authorize paths. One request per connection; no keep-alive or chunked transfer. Request framing and diagnostics use the raw logging boundary and do not impose the optional formatting API on consumers. |
@@ -28,6 +29,8 @@ tools/           non-mutating quality and structure gates
 ## Where is X?
 
 - Read a typed environment value: `lucent::config` in `include/lucent/config.h`.
+- Define a program setting with a config file / environment / `--set` precedence: `lucent::cvar::Var<T>`
+  in `include/lucent/cvar.hpp` (`lucent_cvar_*` in `cvar_c.h` from C).
 - Hash file content without loading it all into memory: `lucent::content::sha256_file` in
   `include/lucent/content.h`.
 - Emit or capture a diagnostic: `lucent::log` in `include/lucent/log.h`.
