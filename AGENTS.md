@@ -5,6 +5,10 @@ that several projects would otherwise reimplement; its core remains dependency-f
 `lucent::zip` adds zlib-backed archive extraction.
 
 - `config` owns typed, cached environment configuration.
+- `cvar` owns layered configuration variables: a compiled default overridden by a `name = value`
+  file, then the environment (via `config`), then an explicit `--set`. Consumers define `Var<T>`
+  globals and register them; C code reads them through `cvar_c.h`. Persistence policy (which file,
+  where) stays with the consumer.
 - `log` owns all process diagnostics and sinks.
 - `http` owns bounded loopback transport, request parsing, response framing, and server lifecycle.
   Consumers own routes and domain behavior; game input, renderer probes, and application state do
