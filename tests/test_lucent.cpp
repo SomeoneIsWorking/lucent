@@ -2,6 +2,7 @@
 // dependency footprint as the library itself (none).
 #include "lucent/config.h"
 #include "lucent/log.h"
+#include "lucent/log_c.h"
 
 #include <atomic>
 #include <chrono>
@@ -514,6 +515,25 @@ void test_format_builds_a_string_without_emitting() {
   lucent::enable_channels("");
 }
 
+void test_c_logging_api() {
+  Capture cap;
+  lucent::enable_channels("cchan");
+  lucent_log_info("cchan", "info message %d", 42);
+  lucent_log_warn("cchan", "warn message %s", "test");
+  lucent_log_error("cchan", "error message");
+  lucent_log_debug("cchan", "debug on %d", 1);
+  lucent_log_debug("offchan", "debug off %d", 2);
+  lucent::enable_channels("");
+
+  CHECK_EQ(cap.lines.size(), 4u);
+  if (cap.lines.size() == 4u) {
+    CHECK_EQ(without_timestamp(cap.lines[0]), "[cchan] info message 42");
+    CHECK_EQ(without_timestamp(cap.lines[1]), "[cchan:warn] warn message test");
+    CHECK_EQ(without_timestamp(cap.lines[2]), "[cchan:error] error message");
+    CHECK_EQ(without_timestamp(cap.lines[3]), "[cchan] debug on 1");
+  }
+}
+
 } // namespace
 
 int main() {
@@ -538,6 +558,7 @@ int main() {
   test_string_keyed_gate_does_not_wait_for_the_logger_mutex();
   test_string_keyed_gate_tracks_the_set();
   test_format_builds_a_string_without_emitting();
+  test_c_logging_api();
 
   if (g_failures == 0)
     std::cout << "all tests passed\n";
