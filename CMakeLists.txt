@@ -22,6 +22,7 @@ add_library(lucent STATIC
   src/cvar.cpp
   src/http.cpp
   src/log.cpp
+  src/log_c.cpp
   src/platform.cpp
   src/touch.cpp
 )
