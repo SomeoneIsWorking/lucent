@@ -1,0 +1,83 @@
+name: Native verification
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: native-verification-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  native:
+    name: ${{ matrix.runner }} / ${{ matrix.architecture }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: 25
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - runner: ubuntu-24.04
+            architecture: x64
+            build_zip: ON
+            cc: clang
+            cxx: clang++
+          - runner: ubuntu-24.04-arm
+            architecture: arm64
+            build_zip: ON
+            cc: clang
+            cxx: clang++
+          - runner: windows-2022
+            architecture: x64
+            build_zip: OFF
+            cc: clang-cl
+            cxx: clang-cl
+          - runner: macos-15-intel
+            architecture: x64
+            build_zip: ON
+            cc: /usr/bin/clang
+            cxx: /usr/bin/clang++
+          - runner: macos-15
+            architecture: arm64
+            build_zip: ON
+            cc: /usr/bin/clang
+            cxx: /usr/bin/clang++
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - uses: actions/setup-python@5fda3b95a4ea91299a34e894583c3862153e4b97
+        with:
+          python-version: '3.12'
+      - name: Install Linux native verification tools
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install --no-install-recommends -y clang clang-format clang-tidy ninja-build zlib1g-dev
+      - name: Install macOS native verification tools
+        if: runner.os == 'macOS'
+        run: |
+          brew install llvm
+          echo "$(brew --prefix llvm)/bin" >> "$GITHUB_PATH"
+      - name: Install Windows native verification tools
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          choco install llvm --yes --no-progress
+          echo "$env:ProgramFiles\LLVM\bin" >> $env:GITHUB_PATH
+      - name: Configure with Clang and Ninja
+        env:
+          CC: ${{ matrix.cc }}
+          CXX: ${{ matrix.cxx }}
+          CLANG_CXX: clang++
+        run: >-
+          cmake -S . -B build/ci -G Ninja -DCMAKE_BUILD_TYPE=Debug
+          -DLUCENT_BUILD_ZIP=${{ matrix.build_zip }}
+          -DCMAKE_EXPORT_COMPILE_COMMANDS=ON
+      - name: Build
+        run: cmake --build build/ci --parallel 2
+      - name: Test
+        run: ctest --test-dir build/ci --output-on-failure

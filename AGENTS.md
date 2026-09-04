@@ -26,5 +26,5 @@ that several projects would otherwise reimplement; its core remains dependency-f
   user-provided install archives. Consumers supply the destination and title-specific filename or
   content-identity matcher; game-specific archive layouts and validation do not belong in Lucent.
 
-Run `tools/check_cpp_quality.sh build` and `ctest --test-dir build` before landing.
+Run `python3 tools/check_cpp_quality.py build` and `ctest --test-dir build` before landing.
 Update `docs/codemap.md` in the same commit when ownership changes.

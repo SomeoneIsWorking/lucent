@@ -14,7 +14,8 @@ Clang is the verification toolchain; compatible GCC and AppleClang consumers are
 | Touch routing and Android contact acquisition | real, tested | `include/lucent/touch.h`, `src/touch.cpp`, `platforms/android/java/io/github/someoneisworking/lucent/{LucentActivity,LucentTouchContacts}.java` | Stable zone events retain both capture origin and current position for relative gestures. LucentActivity mirrors immutable physical-pixel contact lifetimes before SDL receives the same event and cancels every capture on focus/lifecycle loss; titles own safe-area layout and game-action mapping. |
 | Platform user data and Android imports | real, partly platform-compiled | `include/lucent/platform.h`, `include/lucent/platform_c.h`, `src/platform.cpp`, `platforms/android/java/io/github/someoneisworking/lucent/LucentDocumentImport.java` | Android shells provide their app-private root. Lucent owns persisted SAF read grants, bounded private staging, safe rejection discard, source-document disposal after title validation, and recovery-safe promotion of a title-validated staging directory; a title owns selection wording and identity/completeness validation. |
 | ZIP install extraction | real, tested | `include/lucent/zip.h`, `src/zip.cpp`, `tests/test_zip.cpp` | Optional `lucent::zip` target uses zlib and is disabled by default for embedded consumers. File-path inputs memory-map direct archives rather than duplicating them in heap; byte inputs remain for callers that already own bytes. Both support direct archives or one nested ZIP, content-identity selection across both levels, aggregate archive/entry/expanded-size budgets, path/duplicate/CRC validation, and failure-atomic publication into a fresh destination. |
-| Verification | real | `tests/`, `tools/check_cpp_quality.sh`, `tools/check_source_structure.py` | Run through CTest in top-level builds |
+| Verification | real | `tests/`, `tools/check_cpp_quality.py`, `tools/check_source_structure.py` | Run through CTest in top-level builds |
+| Hosted native verification | target-neutral CI orchestration | `.github/workflows/ci.yml` | CMake/Ninja and CTest on each supported desktop host |
 
 ## Source tree
 
@@ -23,7 +24,7 @@ include/lucent/  public configuration, content, logging, HTTP, touch, and ZIP in
 src/             one implementation translation unit per public subsystem
 platforms/android/java/ title-neutral Android Activity and SAF import mechanics
 tests/           production-interface unit and loopback integration tests
-tools/           non-mutating quality and structure gates
+tools/           non-mutating Python quality and structure gates
 ```
 
 ## Where is X?
