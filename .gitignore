@@ -5,3 +5,5 @@ scratch/
 *.a
 .cache/
 compile_commands.json
+__pycache__/
+*.py[cod]
