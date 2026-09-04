@@ -23,6 +23,7 @@ S007 is the current focus.
 | S007 | HTTP responses stream bounded files without loading complete media into memory | verified | S003 | G001 |
 | S008 | Typed configuration reads named application settings from portable process inputs | verified | — | G001 |
 | S009 | Bounded ZIP discovery and extraction safely imports exactly one selected payload | verified | S002, S004 | G001 |
+| S010 | Native CMake and CTest verification runs on supported desktop hosts without game assets | partial | S001, S002, S003, S004, S005, S007, S008, S009 | G001 |
 
 ## Capability details
 
@@ -75,3 +76,15 @@ environment-name handling.
 
 Evidence: production ZIP APIs have controls for mapped archives, traversal, entry and size bounds,
 exact candidate selection, staging, promotion, and rejection cleanup.
+
+### S010 — Hosted native verification
+
+The workflow configures and builds Lucent with CMake/Ninja, then runs the production CTest suite on
+Linux x64 and arm64, Windows x64, and macOS Intel and arm64. The Windows matrix intentionally builds
+the core target without the optional zlib-backed ZIP target because the workflow has no pinned native
+zlib dependency; Linux and macOS exercise the ZIP target.
+
+Gap: the first hosted run for the workflow is still required before this item can be marked verified.
+Android is blocked rather than represented by a fake job: Lucent contains title-neutral Android Java
+runtime sources but no standalone Gradle/package target. The shared `android-port` owner supplies the
+build/package boundary for consuming ports.

@@ -181,8 +181,12 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
     add_test(NAME cpp_quality
-      COMMAND "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_cpp_quality.sh"
+      COMMAND "${Python3_EXECUTABLE}"
+              "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_cpp_quality.py"
               "${CMAKE_CURRENT_BINARY_DIR}")
+    add_test(NAME cpp_quality_inputs
+      COMMAND "${Python3_EXECUTABLE}"
+              "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_check_cpp_quality.py")
     add_test(NAME source_structure
       COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_source_structure.py")
     add_test(NAME source_structure_selftest
