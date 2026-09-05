@@ -101,7 +101,15 @@ missing-display process verifies explicit deferred initialization failure.
 Independent X11 connections verify chooser windows are unmapped immediately after completion or
 close, without another GTK iteration; native teardown explicitly flushes queued window-system work.
 
-Gap: the desktop-portal presentation has not been exercised. Linux CI enables the optional target;
+Gap: rapid Ctrl+L/typing on GTK 3.24.52 can lose input. An independent Xvfb/XTest
+reproduction shows the chooser focusing an unrealized entry while its animated
+revealer's child is still hidden; capped GLib dispatch amplifies the defect.
+Continuous GLib dispatch alone also reproduces loss, so replacing the pump is
+not a complete fix. Source-level reveal/realization regression and a corrected
+GTK dependency are required; no animation override or warning suppression is
+applied. Existing selector tests do not exercise this keyboard transition.
+The GTK source build prerequisite `wayland-protocols-devel` is currently missing.
+The desktop-portal presentation has not been exercised. Linux CI enables the optional target;
 its hosted result remains pending. Windows/macOS pickers are unsupported; Android retains its
 separate `LucentDocumentImport` SAF owner.
 
