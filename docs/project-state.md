@@ -109,8 +109,10 @@ four lifecycle regressions and twelve existing sizing cases pass; upstream
 the installed fork preserves all text with zero criticals at the same capped
 two-iteration/60 Hz dispatch. `tools/gtk_runtime.py` cold-built the pinned source
 with Clang 22.1.8, X11 and Wayland enabled, through the consumer's locked Meson
-1.11.1 environment. Thirteen provisioning tests join the passing 18-test CTest
-gate. Consumers must select this prefix; arbitrary system GTK is not covered by
+1.11.1 environment. Fifteen provisioning tests supplement the passing 18-test CTest
+gate. A warm invocation without compiler environment overrides retains the configured
+Clang toolchain and performs no compilations; explicit changes remain refused.
+Consumers must select this prefix; arbitrary system GTK is not covered by
 the corrected keyboard-lifecycle evidence.
 
 Gap: the desktop-portal presentation has not been exercised. Linux CI enables the optional target;
