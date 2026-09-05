@@ -226,6 +226,10 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     set_tests_properties(lucent_env_name_tests PROPERTIES ENVIRONMENT "MYAPP_DEBUG=early")
 
     find_package(Python3 COMPONENTS Interpreter REQUIRED)
+    if(TARGET lucent_file_dialog)
+      add_test(NAME gtk_runtime_provisioning
+        COMMAND "${Python3_EXECUTABLE}" "${CMAKE_CURRENT_SOURCE_DIR}/tests/test_gtk_runtime.py")
+    endif()
     add_test(NAME cpp_quality
       COMMAND "${Python3_EXECUTABLE}"
               "${CMAKE_CURRENT_SOURCE_DIR}/tools/check_cpp_quality.py"

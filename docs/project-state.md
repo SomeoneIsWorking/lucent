@@ -101,15 +101,19 @@ missing-display process verifies explicit deferred initialization failure.
 Independent X11 connections verify chooser windows are unmapped immediately after completion or
 close, without another GTK iteration; native teardown explicitly flushes queued window-system work.
 
-Gap: rapid Ctrl+L/typing on GTK 3.24.52 can lose input. An independent Xvfb/XTest
-reproduction shows the chooser focusing an unrealized entry while its animated
-revealer's child is still hidden; capped GLib dispatch amplifies the defect.
-Continuous GLib dispatch alone also reproduces loss, so replacing the pump is
-not a complete fix. Source-level reveal/realization regression and a corrected
-GTK dependency are required; no animation override or warning suppression is
-applied. Existing selector tests do not exercise this keyboard transition.
-The GTK source build prerequisite `wayland-protocols-devel` is currently missing.
-The desktop-portal presentation has not been exercised. Linux CI enables the optional target;
+The GTK fork in `dependencies/gtk.json` corrects immediate child visibility at
+reveal start and late child insertion without changing animation timing. Its
+four lifecycle regressions and twelve existing sizing cases pass; upstream
+3.24.52 fails both immediate-reveal and late-insertion regressions. The unchanged
+30-event XTest corpus lost all 13 characters with 28 criticals against upstream;
+the installed fork preserves all text with zero criticals at the same capped
+two-iteration/60 Hz dispatch. `tools/gtk_runtime.py` cold-built the pinned source
+with Clang 22.1.8, X11 and Wayland enabled, through the consumer's locked Meson
+1.11.1 environment. Thirteen provisioning tests join the passing 18-test CTest
+gate. Consumers must select this prefix; arbitrary system GTK is not covered by
+the corrected keyboard-lifecycle evidence.
+
+Gap: the desktop-portal presentation has not been exercised. Linux CI enables the optional target;
 its hosted result remains pending. Windows/macOS pickers are unsupported; Android retains its
 separate `LucentDocumentImport` SAF owner.
 

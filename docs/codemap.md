@@ -17,6 +17,7 @@ Clang is the verification toolchain; compatible GCC and AppleClang consumers are
 | Platform user data and Android imports | real, partly platform-compiled | `include/lucent/platform.h`, `include/lucent/platform_c.h`, `src/platform.cpp`, `platforms/android/java/io/github/someoneisworking/lucent/LucentDocumentImport.java` | Android shells provide their app-private root. Lucent owns persisted SAF read grants, bounded private staging, safe rejection discard, source-document disposal after title validation, and recovery-safe promotion of a title-validated staging directory; a title owns selection wording and identity/completeness validation. |
 | ZIP install extraction | real, tested | `include/lucent/zip.h`, `src/zip.cpp`, `tests/test_zip.cpp` | Optional `lucent::zip` target uses zlib and is disabled by default for embedded consumers. File-path inputs memory-map direct archives rather than duplicating them in heap; byte inputs remain for callers that already own bytes. Both support direct archives or one nested ZIP, content-identity selection across both levels, aggregate archive/entry/expanded-size budgets, path/duplicate/CRC validation, and failure-atomic publication into a fresh destination. |
 | Verification | real | `tests/`, `tools/check_cpp_quality.py`, `tools/check_source_structure.py` | Run through CTest in top-level builds |
+| Pinned GTK runtime provisioning | Optional Linux dependency build owner | `dependencies/gtk.json`, `tools/gtk_runtime.py`, `tools/gtk_prerequisites.py`, `tests/test_gtk_runtime.py` | The immutable source contract and Meson/Ninja recipe build X11 and Wayland GTK into a consumer's `build/deps` prefix. Consumers acquire the declared Git revision and invoke the CLI through their locked Python interpreter; Lucent validates clean source identity, prerequisites, configured compiler/options, and installed prefix. It does not run tests or install system packages during provisioning. |
 | Hosted native verification | target-neutral CI orchestration | `.github/workflows/ci.yml` | CMake/Ninja and CTest on each supported desktop host |
 
 ## Source tree
@@ -40,6 +41,12 @@ tools/           non-mutating Python quality and structure gates
   in `include/lucent/file_dialog.h`; call `poll()` from the main loop.
 - Read a selected local file asynchronously within a consumer-defined byte budget:
   `lucent::file_read::FileRead` in `include/lucent/file_read.h`.
+- Build the maintained GTK runtime used by native file adapters: the consumer provisions the exact
+  source in `dependencies/gtk.json`, then invokes `tools/gtk_runtime.py --source PATH --build PATH
+  --prefix PATH` with distinct sibling paths under its own `build/deps`. The caller's interpreter
+  must provide locked Meson; the source is never downloaded, switched, or copied by this builder.
+  The prefix supplies `lib/pkgconfig`, GTK/GDK shared libraries, headers, and compiled schemas.
+  Consumers own runtime library selection plus `GSETTINGS_SCHEMA_DIR`/`XDG_DATA_DIRS` composition.
 - Emit or capture a diagnostic: `lucent::log` in `include/lucent/log.h`.
 - Add a local interactive control channel: `lucent::http::Server` in `include/lucent/http.h`; the
   consumer supplies the route handler. `ListenScope::LocalNetwork` is for explicitly authenticated,
