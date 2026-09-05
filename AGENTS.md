@@ -3,6 +3,7 @@
 The repository-wide rules in `../AGENTS.md` apply here. Lucent owns small C++20 infrastructure
 that several projects would otherwise reimplement; its core remains dependency-free and optional
 `lucent::zip` adds zlib-backed archive extraction.
+Optional Linux `lucent::file_dialog` adds GTK3/GIO without changing core dependencies.
 
 - `config` owns typed, cached environment configuration.
 - `cvar` owns layered configuration variables: a compiled default overridden by a `name = value`
@@ -22,6 +23,9 @@ that several projects would otherwise reimplement; its core remains dependency-f
   validation, archive policy, and the decision to promote after validation.
 - `content` owns dependency-free streaming content digests. Consumers own the expected identity and
   complete-install policy.
+- `file_dialog` owns one asynchronous Linux native file selection and its cancellation lifetime.
+  `file_read` separately owns bounded GIO regular-file reads. Consumers poll these main-thread
+  owners and retain file interpretation, validation, selection wording, and publication policy.
 - `zip` owns safe ZIP entry discovery, bounded extraction, and exactly-one candidate selection for
   user-provided install archives. Consumers supply the destination and title-specific filename or
   content-identity matcher; game-specific archive layouts and validation do not belong in Lucent.

@@ -24,6 +24,8 @@ S007 is the current focus.
 | S008 | Typed configuration reads named application settings from portable process inputs | verified | — | G001 |
 | S009 | Bounded ZIP discovery and extraction safely imports exactly one selected payload | verified | S002, S004 | G001 |
 | S010 | Native CMake and CTest verification runs on supported desktop hosts without game assets | partial | S001, S002, S003, S004, S005, S007, S008, S009 | G001 |
+| S011 | Linux applications select one local file asynchronously through a native GTK chooser | partial | — | G001 |
+| S012 | Linux applications read regular files asynchronously within a strict byte budget | verified | — | G001 |
 
 ## Capability details
 
@@ -88,3 +90,28 @@ Gap: the first hosted run for the workflow is still required before this item ca
 Android is blocked rather than represented by a fake job: Lucent contains title-neutral Android Java
 runtime sources but no standalone Gradle/package target. The shared `android-port` owner supplies the
 build/package boundary for consuming ports.
+
+### S011 — Linux native file chooser
+
+Evidence: optional `lucent::file_dialog` builds against GTK3 without adding dependencies to core.
+`lucent_file_dialog_tests` drives the real GTK native chooser's fallback window in an isolated Xvfb
+display and verifies exact-file selection, native and programmatic cancellation, busy-request refusal,
+close suppression, callback reopening/self-destruction, and pending-owner teardown. A separate
+missing-display process verifies explicit deferred initialization failure.
+Independent X11 connections verify chooser windows are unmapped immediately after completion or
+close, without another GTK iteration; native teardown explicitly flushes queued window-system work.
+
+Gap: the desktop-portal presentation has not been exercised. Linux CI enables the optional target;
+its hosted result remains pending. Windows/macOS pickers are unsupported; Android retains its
+separate `LucentDocumentImport` SAF owner.
+
+### S012 — Linux bounded asynchronous file reads
+
+Evidence: `lucent_file_read_tests` exercises the production GIO reader with exact-limit 128 KiB
+binary content, empty files with zero-byte budgets, oversize and missing inputs, directories/FIFOs,
+invalid paths/limits, cancellation, and destroyed owners. A regular procfs file with zero reported
+size proves the read-time max+1 refusal independently of metadata-size checks. Errors discard all
+partial bytes; cancelled callbacks retain internal state only, never the reader or consumer.
+The descriptor-open discriminator swaps a regular path to a FIFO at the syscall boundary and proves
+nonblocking refusal plus descriptor closure. Replacing a regular pathname after open also proves
+reads retain the original validated descriptor rather than reopen the substituted path.
