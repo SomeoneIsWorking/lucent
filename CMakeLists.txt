@@ -50,6 +50,26 @@ if(LUCENT_BUILD_ZIP)
   set_target_properties(lucent_zip PROPERTIES POSITION_INDEPENDENT_CODE ON)
 endif()
 
+option(LUCENT_BUILD_FILE_DIALOG "Build lucent's optional Linux GTK3 picker and GIO file reader" OFF)
+if(LUCENT_BUILD_FILE_DIALOG)
+  if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR ANDROID)
+    message(FATAL_ERROR "lucent::file_dialog currently supports Linux desktops only")
+  endif()
+  find_package(PkgConfig REQUIRED)
+  pkg_check_modules(GTK3 REQUIRED IMPORTED_TARGET gtk+-3.0>=3.20)
+  pkg_check_modules(GIO_UNIX REQUIRED IMPORTED_TARGET gio-unix-2.0)
+  add_library(lucent_file_dialog STATIC src/file_dialog.cpp src/file_read.cpp src/file_read_open.cpp)
+  add_library(lucent::file_dialog ALIAS lucent_file_dialog)
+  target_link_libraries(lucent_file_dialog PRIVATE PkgConfig::GTK3 PkgConfig::GIO_UNIX)
+  target_include_directories(lucent_file_dialog PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>)
+  target_compile_features(lucent_file_dialog PUBLIC cxx_std_20)
+  target_compile_options(lucent_file_dialog PRIVATE -Wall -Wextra -Wpedantic)
+  set_target_properties(lucent_file_dialog PROPERTIES
+    POSITION_INDEPENDENT_CODE ON EXPORT_NAME file_dialog)
+endif()
+
 find_package(Threads REQUIRED)
 target_link_libraries(lucent PUBLIC Threads::Threads)
 if(WIN32)
@@ -166,6 +186,32 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
       add_test(NAME lucent_zip_tests COMMAND lucent_zip_tests)
     endif()
 
+    if(TARGET lucent_file_dialog)
+      find_program(LUCENT_XVFB_RUN xvfb-run)
+      if(NOT LUCENT_XVFB_RUN)
+        message(FATAL_ERROR "File dialog verification requires xvfb-run and xauth")
+      endif()
+      add_executable(lucent_file_dialog_tests tests/test_file_dialog.cpp)
+      find_package(X11 REQUIRED)
+      target_link_libraries(lucent_file_dialog_tests PRIVATE
+        lucent::file_dialog lucent PkgConfig::GTK3 X11::X11)
+      file(MAKE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}/scratch/file-dialog-tests")
+      add_test(NAME lucent_file_dialog_tests
+        COMMAND "${LUCENT_XVFB_RUN}" -a $<TARGET_FILE:lucent_file_dialog_tests>
+                "${CMAKE_CURRENT_SOURCE_DIR}/tests/fixtures/sha256.txt")
+      set_tests_properties(lucent_file_dialog_tests PROPERTIES
+        ENVIRONMENT "GTK_USE_PORTAL=0;GSETTINGS_BACKEND=memory;TMPDIR=${CMAKE_CURRENT_SOURCE_DIR}/scratch/file-dialog-tests;XDG_CONFIG_HOME=${CMAKE_CURRENT_SOURCE_DIR}/scratch/file-dialog-tests/config;XDG_DATA_HOME=${CMAKE_CURRENT_SOURCE_DIR}/scratch/file-dialog-tests/data;XDG_CACHE_HOME=${CMAKE_CURRENT_SOURCE_DIR}/scratch/file-dialog-tests/cache" TIMEOUT 30)
+      add_test(NAME lucent_file_dialog_no_display
+        COMMAND lucent_file_dialog_tests --no-display)
+      set_tests_properties(lucent_file_dialog_no_display PROPERTIES
+        ENVIRONMENT "DISPLAY=;WAYLAND_DISPLAY=;GDK_BACKEND=x11" TIMEOUT 10)
+      add_executable(lucent_file_read_tests tests/test_file_read.cpp)
+      target_link_libraries(lucent_file_read_tests PRIVATE lucent::file_dialog lucent PkgConfig::GTK3)
+      add_test(NAME lucent_file_read_tests COMMAND lucent_file_read_tests
+        "${CMAKE_CURRENT_SOURCE_DIR}/scratch/file-read-tests")
+      set_tests_properties(lucent_file_read_tests PROPERTIES TIMEOUT 30)
+    endif()
+
     # A SECOND binary, compiled from lucent's sources with the consumer-name macros set, because
     # that is the thing under test: `lucent` itself is built with the defaults, and a compile-time
     # name cannot be exercised by linking against a library that did not get it.
@@ -200,6 +246,10 @@ install(TARGETS lucent EXPORT lucentTargets
         ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
 if(TARGET lucent_zip)
   install(TARGETS lucent_zip EXPORT lucentTargets
+          ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
+endif()
+if(TARGET lucent_file_dialog)
+  install(TARGETS lucent_file_dialog EXPORT lucentTargets
           ARCHIVE DESTINATION ${CMAKE_INSTALL_LIBDIR})
 endif()
 install(DIRECTORY include/ DESTINATION ${CMAKE_INSTALL_INCLUDEDIR})

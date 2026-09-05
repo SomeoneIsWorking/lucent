@@ -3,7 +3,37 @@
 A small C++20 library for the infrastructure every program needs and otherwise reinvents badly:
 **logging**, **configuration**, and a **loopback HTTP control channel**.
 
-No third-party dependencies.
+The core has no third-party dependencies. Optional targets add zlib-backed ZIP extraction and
+Linux GTK3/GIO file selection and bounded asynchronous reading.
+
+## Optional Linux file access
+
+Enable `LUCENT_BUILD_FILE_DIALOG=ON` before adding Lucent and link `lucent::file_dialog`.
+This requires GTK 3.20+ development headers and pkg-config (`libgtk-3-dev` on Debian/Ubuntu,
+`gtk3-devel` on Fedora). The core remains independent of GTK. This target currently supports
+Linux desktops only; Android SAF is owned by `LucentDocumentImport`, and no Windows/macOS
+picker implementation is claimed.
+
+`lucent::file_dialog::FileDialog` opens one native single-file chooser and dispatches its
+selected/cancelled/error result from `poll()` after native teardown. Call every method and
+destroy the owner on the application main thread. The completion can safely open a new request
+or destroy its owner. `cancel()` defers a cancelled result to the next poll; `close()` and the
+destructor suppress completion. The selected path is not read or interpreted by the picker.
+
+`lucent::file_read::FileRead` in `<lucent/file_read.h>` separately reads a regular file through
+GIO async operations, enforcing a caller-supplied byte limit both against metadata and during
+the read. `poll()` returns a completed `{bytes, error}` once; any error discards partial bytes.
+An I/O worker opens with `O_NONBLOCK` and validates the opened descriptor before creating the GIO
+stream, so a path replaced with a FIFO cannot block open or evade regular-file checking.
+`close()` cancels and detaches the request. Late callbacks own only internal shared state, not
+the reader or its consumer. Continue main-loop polling to dispatch cancelled GIO completions;
+the reader's `poll()` services the context even while idle. Parsing and save publication remain
+consumer responsibilities.
+
+For this optional target's tests, install Xvfb and xauth, then configure with
+`cmake -S . -B build/file-dialog -G Ninja -DLUCENT_BUILD_FILE_DIALOG=ON`, build, and run
+`ctest --test-dir build/file-dialog --output-on-failure`. Tests use an isolated virtual display,
+real GTK chooser responses, synthetic files, and the normal format/lint/structure checks.
 
 ```cpp
 #include <lucent/log.h>
