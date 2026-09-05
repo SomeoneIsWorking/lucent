@@ -104,6 +104,25 @@ def validate_prefix(prefix: Path, environment: Mapping[str, str], run: Run) -> N
         raise RuntimeError(f"Installed GTK lacks required X11/Wayland backends: {targets}")
 
 
+def effective_environment(
+    current: Mapping[str, str], previous: Mapping[str, object] | None,
+) -> dict[str, str]:
+    """Unspecified warm toolchain inputs keep Meson's configured values; empty is explicit."""
+    selected = dict(current)
+    if previous is None:
+        return selected
+    configured = previous.get("environment")
+    if not isinstance(configured, dict) or any(
+        configured.get(name) is not None and not isinstance(configured.get(name), str)
+        for name in TOOLCHAIN_INPUTS
+    ):
+        raise RuntimeError("GTK build manifest has invalid configured toolchain inputs")
+    for name in TOOLCHAIN_INPUTS:
+        if name not in selected and configured.get(name) is not None:
+            selected[name] = configured[name]
+    return selected
+
+
 def build_gtk(
     source: Path, build: Path, prefix: Path, *, contract: GtkSource | None = None,
     environment: Mapping[str, str] | None = None, run: Run = subprocess.run,
@@ -113,7 +132,19 @@ def build_gtk(
         raise RuntimeError("Lucent GTK fork provisioning currently supports Linux only")
     contract = load_contract() if contract is None else contract
     source, build, prefix = validate_paths(source, build, prefix)
-    environment = dict(os.environ if environment is None else environment)
+    manifest = build / "lucent-gtk-runtime.json"
+    previous = json.loads(manifest.read_text(encoding="utf-8")) if manifest.is_file() else None
+    if previous is not None and not isinstance(previous, dict):
+        raise RuntimeError(f"Invalid GTK build manifest: {manifest}")
+    configured = (build / "meson-private/coredata.dat").is_file()
+    if build.exists() and any(build.iterdir()) and not configured:
+        raise RuntimeError(f"Refusing non-Meson GTK build directory: {build}")
+    if configured and previous is None:
+        raise RuntimeError(f"Refusing GTK build without its compiler/options manifest: {build}")
+    if configured and previous is not None and previous.get("source") != str(source):
+        raise RuntimeError(f"GTK build belongs to a different source path: {build}")
+    environment = effective_environment(os.environ if environment is None else environment,
+                                        previous if configured else None)
     versions = prerequisites(environment, run=run)
     validate_source(source, contract, run)
     compiler = shlex.split(environment.get("CC", "cc"))
@@ -128,17 +159,6 @@ def build_gtk(
         "python": sys.executable, "dependencies": versions,
         "environment": {name: environment.get(name) for name in ENVIRONMENT_INPUTS},
     }
-    manifest = build / "lucent-gtk-runtime.json"
-    previous = json.loads(manifest.read_text(encoding="utf-8")) if manifest.is_file() else None
-    if previous is not None and not isinstance(previous, dict):
-        raise RuntimeError(f"Invalid GTK build manifest: {manifest}")
-    configured = (build / "meson-private/coredata.dat").is_file()
-    if build.exists() and any(build.iterdir()) and not configured:
-        raise RuntimeError(f"Refusing non-Meson GTK build directory: {build}")
-    if configured and previous is None:
-        raise RuntimeError(f"Refusing GTK build without its compiler/options manifest: {build}")
-    if configured and previous is not None and previous.get("source") != str(source):
-        raise RuntimeError(f"GTK build belongs to a different source path: {build}")
     if configured and previous is not None and (
         previous.get("compilerVersion") != compiler_version
         or any(previous.get("environment", {}).get(name) != environment.get(name)

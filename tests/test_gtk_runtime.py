@@ -34,13 +34,17 @@ class BuildFixture:
         self.omit_artifact: str | None = None
         self.fail_install = False
         self.calls: list[list[str]] = []
+        self.environments: list[dict[str, str]] = []
+        self.prerequisite_environments: list[dict[str, str]] = []
 
     def run(self, command, **kwargs):
         self.calls.append(command)
+        if kwargs.get("env") is not None:
+            self.environments.append(dict(kwargs["env"]))
         output = ""
         if command[0] == "git":
             output = self.revision if command[3] == "rev-parse" else self.dirty
-        elif command[0] == "cc":
+        elif command[0] in {"cc", "clang"}:
             output = self.compiler
         elif command[0] == "pkg-config":
             output = str(self.selected_prefix) if command[1] == "--variable=prefix" else self.targets
@@ -76,10 +80,14 @@ class BuildFixture:
         return subprocess.CompletedProcess(command, 0, output, "")
 
     def provision(self, **kwargs):
+        def prerequisites(environment, **_kwargs):
+            self.prerequisite_environments.append(dict(environment))
+            return {"glib-2.0": "2.88.3"}
+
         return gtk_runtime.build_gtk(
             self.source, self.build, self.prefix, contract=self.contract,
             environment=kwargs.pop("environment", {}), run=self.run,
-            prerequisites=lambda *_args, **_kwargs: {"glib-2.0": "2.88.3"}, **kwargs,
+            prerequisites=prerequisites, **kwargs,
         )
 
     def meson_calls(self):
@@ -151,6 +159,33 @@ class GtkRuntimeTests(unittest.TestCase):
         fixture.compiler = "synthetic compiler 1"
         with self.assertRaisesRegex(RuntimeError, "incompatible compiler inputs"):
             fixture.provision(environment={"CFLAGS": "-O0"})
+
+    def test_unset_warm_toolchain_keeps_configured_compiler_and_flags(self):
+        fixture = self.fixture
+        configured = {
+            "CC": "clang", "CXX": "clang++", "AR": "llvm-ar", "CFLAGS": "-O2",
+            "CPPFLAGS": "-DSYNTHETIC=1", "LDFLAGS": "-Wl,--as-needed",
+        }
+        fixture.provision(environment=configured)
+        fixture.calls.clear()
+        fixture.environments.clear()
+        fixture.provision(environment={})
+        self.assertIn(["clang", "--version"], fixture.calls)
+        self.assertNotIn(["cc", "--version"], fixture.calls)
+        self.assertFalse(any(command[3] == "setup" for command in fixture.meson_calls()))
+        manifest = json.loads((fixture.build / "lucent-gtk-runtime.json").read_text(encoding="utf-8"))
+        for name, value in configured.items():
+            self.assertEqual(manifest["environment"][name], value)
+            self.assertEqual(fixture.prerequisite_environments[-1][name], value)
+            self.assertTrue(all(environment[name] == value for environment in fixture.environments))
+
+    def test_explicit_warm_compiler_and_empty_flags_still_refuse_changes(self):
+        fixture = self.fixture
+        fixture.provision(environment={"CC": "clang", "CFLAGS": "-O2"})
+        with self.assertRaisesRegex(RuntimeError, "incompatible compiler inputs"):
+            fixture.provision(environment={"CC": "cc"})
+        with self.assertRaisesRegex(RuntimeError, "incompatible compiler inputs"):
+            fixture.provision(environment={"CFLAGS": ""})
 
     def test_build_without_manifest_is_not_adopted(self):
         fixture = self.fixture
