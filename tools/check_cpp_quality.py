@@ -84,6 +84,27 @@ def configured_translation_units(
     return selected
 
 
+def macos_sysroot_arguments() -> list[str]:
+    """The SDK a non-Apple clang-tidy needs on macOS, or nothing elsewhere.
+
+    The build compiles with Apple's clang, which knows where the platform SDK
+    is; a Homebrew or LLVM.org clang-tidy does not, and reports every standard
+    header as missing -- eight `'string' file not found` errors that look like
+    a broken checkout rather than a tool that was never told where macOS keeps
+    its headers. The check is only worth having if it can run on the machines
+    people write on.
+    """
+    if sys.platform != "darwin":
+        return []
+    try:
+        sdk = subprocess.check_output(
+            ["xcrun", "--show-sdk-path"], cwd=ROOT, text=True
+        ).strip()
+    except (OSError, subprocess.CalledProcessError):
+        return []
+    return ["--extra-arg=-isysroot", f"--extra-arg={sdk}"] if sdk else []
+
+
 def main() -> int:
     if len(sys.argv) > 2:
         raise SystemExit("usage: tools/check_cpp_quality.py [build-directory]")
@@ -106,6 +127,7 @@ def main() -> int:
             str(build_dir),
             *translation_units,
             f"--extra-arg=-resource-dir={resource_dir}",
+            *macos_sysroot_arguments(),
             "--quiet",
         ]
     )
