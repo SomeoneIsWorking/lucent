@@ -6,6 +6,7 @@ import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
 import android.os.ParcelFileDescriptor;
+import android.os.SystemClock;
 import android.provider.DocumentsContract;
 import android.provider.OpenableColumns;
 
@@ -60,6 +61,29 @@ public final class LucentDocumentImport {
         void onFailed(String message);
     }
 
+    /**
+     * Optional running account of a copy that is already under way.
+     *
+     * <p>A whole game installation over SAF is gigabytes and minutes, and the
+     * copy owns the screen for all of it. Without this the consumer has
+     * nothing true to say and shows a still screen, which reads as a hung
+     * app. Lucent reports what it has copied; the words stay with the
+     * consumer.</p>
+     *
+     * <p>Delivered on the Activity's main thread, at most every 150 ms, and
+     * never with a total: a SAF tree is enumerated as it is walked, so the
+     * size of what remains is not known until it has been read. `bytes` and
+     * `entries` are what has been copied SO FAR.</p>
+     *
+     * <p>A last update may arrive just after the import finished, because the
+     * post that carries it was already in flight. Consumers that care should
+     * ignore progress once {@link #active()} is false.</p>
+     */
+    public interface ProgressListener {
+        void onProgress(long entries, long bytes, String currentName);
+    }
+
+    private static final long PROGRESS_INTERVAL_MILLIS = 150;
     private static final String STAGING_PREFIX = "lucent-import-";
     private static final String PREVIOUS_PREFIX = ".lucent-previous-";
     private static final SecureRandom RANDOM = new SecureRandom();
@@ -72,6 +96,9 @@ public final class LucentDocumentImport {
     private boolean pickerOpen;
     private boolean workerActive;
     private Thread worker;
+    private ProgressListener progressListener;
+    /* Worker-thread only: the copy is the sole writer. */
+    private long lastProgressMillis;
 
     public LucentDocumentImport(Activity activity, Limits limits) {
         if (activity == null || limits == null) {
@@ -79,6 +106,11 @@ public final class LucentDocumentImport {
         }
         this.activity = activity;
         this.limits = limits;
+    }
+
+    /** Set before starting an import; null removes a previous listener. */
+    public synchronized void setProgressListener(ProgressListener listener) {
+        this.progressListener = listener;
     }
 
     public synchronized boolean active() {
@@ -295,6 +327,31 @@ public final class LucentDocumentImport {
         }
     }
 
+    /**
+     * Post one progress update, no more often than the interval allows.
+     *
+     * <p>Throttled here rather than in the consumer: an unthrottled report is
+     * one main-thread post per buffer, which is tens of thousands of posts for
+     * one install and makes the copy slower than the disk.</p>
+     */
+    private void noteProgress(String currentName, Budget budget) {
+        final ProgressListener listener;
+        synchronized (this) {
+            listener = progressListener;
+        }
+        if (listener == null) {
+            return;
+        }
+        long now = SystemClock.uptimeMillis();
+        if (now - lastProgressMillis < PROGRESS_INTERVAL_MILLIS) {
+            return;
+        }
+        lastProgressMillis = now;
+        final long entries = budget.entries();
+        final long bytes = budget.bytes();
+        activity.runOnUiThread(() -> listener.onProgress(entries, bytes, currentName));
+    }
+
     private File createStaging() throws IOException {
         File root = activity.getFilesDir().getCanonicalFile();
         for (int attempt = 0; attempt < 16; ++attempt) {
@@ -369,6 +426,7 @@ public final class LucentDocumentImport {
                     throw new IOException("selected folder contains duplicate name: " + name);
                 }
                 budget.addEntry(declaredSize);
+                noteProgress(name, budget);
                 File target = new File(destination, name);
                 Uri child = DocumentsContract.buildDocumentUriUsingTree(tree, id);
                 if (DocumentsContract.Document.MIME_TYPE_DIR.equals(mime)) {
@@ -401,6 +459,7 @@ public final class LucentDocumentImport {
                 if (count > 0) {
                     budget.addBytes(count);
                     output.write(buffer, 0, count);
+                    noteProgress(target.getName(), budget);
                 }
             }
         }
@@ -515,6 +574,14 @@ public final class LucentDocumentImport {
             if (declaredBytes > 0 && declaredBytes > limits.maximumBytes - bytes) {
                 throw new IOException("selection exceeds the byte limit");
             }
+        }
+
+        int entries() {
+            return entries;
+        }
+
+        long bytes() {
+            return bytes;
         }
 
         void addBytes(int count) throws IOException {
