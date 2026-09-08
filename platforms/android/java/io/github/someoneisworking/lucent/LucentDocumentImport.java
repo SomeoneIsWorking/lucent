@@ -84,7 +84,10 @@ public final class LucentDocumentImport {
         void onProgress(long entries, long bytes, String currentName);
     }
 
-    private static final long PROGRESS_INTERVAL_MILLIS = 150;
+    /* Android notification managers commonly allow about five updates per second.  A 500 ms
+       cadence leaves headroom for provider and lifecycle traffic while keeping the import visibly
+       alive. */
+    private static final long PROGRESS_INTERVAL_MILLIS = 500;
     private static final String STAGING_PREFIX = "lucent-import-";
     private static final String PREVIOUS_PREFIX = ".lucent-previous-";
     private static final SecureRandom RANDOM = new SecureRandom();
