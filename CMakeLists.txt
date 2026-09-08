@@ -51,6 +51,27 @@ if(LUCENT_BUILD_ZIP)
 endif()
 
 option(LUCENT_BUILD_FILE_DIALOG "Build lucent's optional Linux GTK3 picker and GIO file reader" OFF)
+option(LUCENT_BUILD_WEB "Build browser OPFS runtime storage support" OFF)
+if(LUCENT_BUILD_WEB)
+  if(NOT EMSCRIPTEN)
+    message(FATAL_ERROR "lucent::web requires Emscripten with pthreads and WasmFS")
+  endif()
+  add_library(lucent_web STATIC src/web.cpp)
+  add_library(lucent::web ALIAS lucent_web)
+  target_include_directories(lucent_web PUBLIC ${CMAKE_CURRENT_SOURCE_DIR}/include)
+  target_compile_options(lucent_web PUBLIC -pthread)
+  target_link_options(lucent_web PUBLIC -pthread -sWASMFS=1)
+  if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+    add_executable(test_web tests/test_web.cpp)
+    target_link_libraries(test_web PRIVATE lucent::web)
+    target_compile_options(test_web PRIVATE -UNDEBUG)
+    target_link_options(test_web PRIVATE -sPROXY_TO_PTHREAD=1 -sPTHREAD_POOL_SIZE=3
+                                        -sEXIT_RUNTIME=1)
+    set_target_properties(test_web PROPERTIES SUFFIX ".html")
+    configure_file(platforms/web/storage.mjs storage.mjs COPYONLY)
+  endif()
+endif()
+
 if(LUCENT_BUILD_FILE_DIALOG)
   if(NOT CMAKE_SYSTEM_NAME STREQUAL "Linux" OR ANDROID)
     message(FATAL_ERROR "lucent::file_dialog currently supports Linux desktops only")
@@ -145,7 +166,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
           "Lucent found javac at ${Java_JAVAC_EXECUTABLE}, but its matching java runtime is missing")
       endif()
       # Both pure Java owners are the implementations used by the Android adapters.
-      foreach(_lucent_android_owner IN ITEMS TouchContacts ImportLifetime)
+      foreach(_lucent_android_owner IN ITEMS TouchContacts ImportLifetime ImportPromotion)
         set(_lucent_android_classes "${CMAKE_CURRENT_BINARY_DIR}/android_${_lucent_android_owner}")
         set(_lucent_android_source
           "${CMAKE_CURRENT_SOURCE_DIR}/platforms/android/java/io/github/someoneisworking/lucent/Lucent${_lucent_android_owner}.java")
@@ -166,7 +187,8 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
           DEPENDS "${_lucent_android_test_class}")
         add_test(NAME lucent_android_${_lucent_android_name}
           COMMAND "${_lucent_java_runtime}" -cp "${_lucent_android_classes}"
-            io.github.someoneisworking.lucent.Lucent${_lucent_android_owner}Test)
+            io.github.someoneisworking.lucent.Lucent${_lucent_android_owner}Test
+            "${_lucent_android_classes}/fixture")
       endforeach()
     endif()
 

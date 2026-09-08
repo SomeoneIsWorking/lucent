@@ -199,7 +199,7 @@ public final class LucentDocumentImport {
         }
         for (File candidate : candidates) {
             if (candidate.getName().startsWith(STAGING_PREFIX)) {
-                deleteRecursively(candidate);
+                LucentImportPromotion.remove(candidate);
             } else if (candidate.getName().startsWith(PREVIOUS_PREFIX)) {
                 recoverPreviousSelection(candidate);
             }
@@ -214,28 +214,19 @@ public final class LucentDocumentImport {
      * replacement is recovered by {@link #cleanStaleImports()} on the next startup.</p>
      */
     public synchronized File promoteValidated(Result result, String destinationName) throws IOException {
+        if (result == null) throw new IllegalArgumentException("import result is required");
+        return promoteValidated(result, result.stagingDirectory, destinationName);
+    }
+
+    /** Publishes only a validated directory contained in this import (for nested archives). */
+    public synchronized File promoteValidated(Result result, File selectedDirectory,
+                                              String destinationName) throws IOException {
         validateLeafName(destinationName);
         File root = activity.getFilesDir().getCanonicalFile();
         File staging = validatedStaging(result, root);
         File destination = privateChild(root, destinationName);
         File previous = privateChild(root, PREVIOUS_PREFIX + destinationName);
-        if (previous.exists()) {
-            throw new IOException("previous selection recovery is pending");
-        }
-        boolean hadPrevious = destination.exists();
-        if (hadPrevious && !destination.renameTo(previous)) {
-            throw new IOException("cannot preserve the current validated selection");
-        }
-        if (!staging.renameTo(destination)) {
-            if (hadPrevious && !previous.renameTo(destination)) {
-                throw new IOException("cannot publish the import or restore the previous selection");
-            }
-            throw new IOException("cannot publish the validated import");
-        }
-        if (hadPrevious && !deleteRecursively(previous)) {
-            throw new IOException("published import, but could not retire the previous selection");
-        }
-        return destination;
+        return LucentImportPromotion.publish(staging, selectedDirectory, destination, previous);
     }
 
     /**
@@ -258,7 +249,7 @@ public final class LucentDocumentImport {
                 || !staging.isDirectory()) {
             throw new IOException("import staging is not a Lucent private directory");
         }
-        if (!deleteRecursively(staging)) {
+        if (!LucentImportPromotion.remove(staging)) {
             throw new IOException("cannot discard rejected import staging");
         }
     }
@@ -319,7 +310,7 @@ public final class LucentDocumentImport {
             // import boundary: discard partial staging and report failure to
             // the Activity rather than leaving the app process dead.
             if (staging != null) {
-                deleteRecursively(staging);
+                LucentImportPromotion.remove(staging);
             }
             String detail = error.getMessage();
             activity.runOnUiThread(() -> finishFailure(
@@ -390,7 +381,7 @@ public final class LucentDocumentImport {
             File root = activity.getFilesDir().getCanonicalFile();
             File destination = privateChild(root, destinationName);
             if (destination.exists()) {
-                if (!deleteRecursively(previous)) {
+                if (!LucentImportPromotion.remove(previous)) {
                     throw new IOException("cannot retire an interrupted previous selection");
                 }
             } else if (!previous.renameTo(destination)) {
@@ -513,7 +504,7 @@ public final class LucentDocumentImport {
 
     private synchronized void finishSuccess(Result result) {
         if (!workerActive) {
-            deleteRecursively(result.stagingDirectory);
+            LucentImportPromotion.remove(result.stagingDirectory);
             return;
         }
         Callback completed = clearCallback();
@@ -543,20 +534,6 @@ public final class LucentDocumentImport {
         return completed;
     }
 
-    private static boolean deleteRecursively(File file) {
-        if (!file.exists()) {
-            return true;
-        }
-        File[] children = file.listFiles();
-        if (children != null) {
-            for (File child : children) {
-                if (!deleteRecursively(child)) {
-                    return false;
-                }
-            }
-        }
-        return file.delete();
-    }
 
     private static final class Budget {
         private final Limits limits;

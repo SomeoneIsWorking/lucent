@@ -27,8 +27,21 @@ S007 is the current focus.
 | S011 | Linux applications select one local file asynchronously through a native GTK chooser | partial | — | G001 |
 | S012 | Linux applications read regular files asynchronously within a strict byte budget | verified | — | G001 |
 | S013 | Linux applications stage immutable binary backing files asynchronously with bounded lifetime storage | verified | S002 | G001 |
+| S014 | Browser applications stage and access files through private origin storage | partial | Emscripten pthreads, WasmFS and cross-origin isolation | G001 |
 
 ## Capability details
+
+### S014 — Browser storage
+
+The optional `lucent::web` worker mount/read/write/remove test passed in an
+isolated headless Chromium browser through WebLua, including four rejected
+mount paths. `FileStager` streamed an 11-byte Blob into real OPFS, reported the
+same byte count, reproduced its contents, and refused a file above its byte
+limit. A fresh origin denied the requested persistence grant; the API reports
+that result so callers can explain possible browser eviction. Large real-title
+imports, accepted-install transactions and offline relaunch remain consumer
+qualification work. ZIP extraction still needs a bounded file-reader path for
+browser inputs because its native mmap path is not file-backed in wasm.
 
 ### S001 — Logging
 
