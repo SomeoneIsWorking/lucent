@@ -22,6 +22,12 @@ int main() {
   const char message[] = "OPFS worker read/write";
   assert(std::fwrite(message, 1, sizeof(message), file) == sizeof(message));
   assert(std::fclose(file) == 0);
+  assert(lucent_web_unmount_storage("/opfs"));
+  assert(!lucent_web_unmount_storage("/opfs"));
+  assert(errno == ENOENT);
+  assert(!lucent_web_unmount_storage("/nested/mount"));
+  assert(errno == EINVAL);
+  assert(lucent_web_mount_storage("/opfs"));
   file = std::fopen(path, "rb");
   assert(file);
   char result[sizeof(message)]{};
@@ -29,7 +35,9 @@ int main() {
   assert(std::fclose(file) == 0);
   assert(std::memcmp(message, result, sizeof(message)) == 0);
   assert(std::remove(path) == 0);
-  std::puts("lucent web storage: worker mount/read/write/remove passed; 4 invalid paths refused");
+  assert(lucent_web_unmount_storage("/opfs"));
+  std::puts("lucent web storage: worker mount/write/unmount/remount/read/remove passed; 6 invalid "
+            "mounts refused");
   wasmfs_flush();
   return 0;
 }

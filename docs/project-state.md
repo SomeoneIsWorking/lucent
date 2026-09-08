@@ -33,9 +33,11 @@ S007 is the current focus.
 
 ### S014 — Browser storage
 
-The optional `lucent::web` worker mount/read/write/remove test passed in an
-isolated headless Chromium browser through WebLua, including four rejected
-mount paths. `FileStager` streamed an 11-byte Blob into real OPFS, reported the
+The optional `lucent::web` worker mount/write/unmount/remount/read/remove test
+passed in an isolated Chromium browser through WebLua, including six invalid
+mount operations. Unmount preserves stored files and releases OPFS handles on
+the application worker before SDK shutdown; the browser console has no blocking
+warning on this path. `FileStager` streamed an 11-byte Blob into real OPFS, reported the
 same byte count, reproduced its contents, and refused a file above its byte
 limit. A fresh origin denied the requested persistence grant; the API reports
 that result so callers can explain possible browser eviction. Large real-title
