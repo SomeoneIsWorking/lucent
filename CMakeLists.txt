@@ -66,7 +66,7 @@ if(LUCENT_BUILD_WEB)
     target_link_libraries(test_web PRIVATE lucent::web)
     target_compile_options(test_web PRIVATE -UNDEBUG)
     target_link_options(test_web PRIVATE -sPROXY_TO_PTHREAD=1 -sPTHREAD_POOL_SIZE=3
-                                        -sEXIT_RUNTIME=1)
+                                        -sEXIT_RUNTIME=1 -sASSERTIONS=1)
     set_target_properties(test_web PROPERTIES SUFFIX ".html")
     configure_file(platforms/web/storage.mjs storage.mjs COPYONLY)
   endif()
