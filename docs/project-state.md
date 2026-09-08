@@ -40,8 +40,9 @@ same byte count, reproduced its contents, and refused a file above its byte
 limit. A fresh origin denied the requested persistence grant; the API reports
 that result so callers can explain possible browser eviction. Large real-title
 imports, accepted-install transactions and offline relaunch remain consumer
-qualification work. ZIP extraction still needs a bounded file-reader path for
-browser inputs because its native mmap path is not file-backed in wasm.
+qualification work. ZIP extraction now uses the bounded file-reader and
+streaming entry owners described in S009; real browser import remains a
+consumer qualification rather than a result of the native ZIP tests.
 
 ### S001 — Logging
 
@@ -90,8 +91,14 @@ environment-name handling.
 
 ### S009 — Safe ZIP imports
 
-Evidence: production ZIP APIs have controls for mapped archives, traversal, entry and size bounds,
-exact candidate selection, staging, promotion, and rejection cleanup.
+Evidence: production ZIP APIs have controls for file/span archives, traversal, entry and size
+bounds, exact candidate selection, staging, promotion, and rejection cleanup. Filename selection
+and whole-archive extraction use at most 64 KiB per physical read/output chunk, with bounded
+metadata reads and no whole-file mapping or expanded-entry allocation. The native streaming test
+passes 21 checks, including stored/deflate multi-chunk output, CRC corruption, output failures,
+backing-file truncation, and extracting a sparse archive whose central directory is beyond 1.5 GiB
+while reading less than 128 KiB of its metadata and payload. The existing content matcher retains
+its complete-entry span contract under max_entry_bytes; it is not the constant-buffer API.
 
 ### S010 — Hosted native verification
 

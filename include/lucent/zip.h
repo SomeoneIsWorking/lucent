@@ -27,6 +27,9 @@ using ContentMatcher = std::function<bool(std::string_view, std::span<const std:
 // Extract every regular file from a validated archive. The returned paths are inside destination
 // and preserve their archive-relative layout. The caller supplies a fresh destination so it can
 // validate title-specific identity and atomically accept or discard the complete preparation.
+// File inputs use bounded random-access reads and streaming decompression, including on browser
+// filesystems where mmap would copy the entire archive. Working buffers do not scale with archive
+// or entry bytes; directory metadata remains bounded by the archive/entry-count limits.
 bool extract_archive(const std::filesystem::path &archive, const std::filesystem::path &destination,
                      std::vector<std::filesystem::path> &files, std::string &error,
                      ExtractionLimits limits = {});
@@ -47,9 +50,11 @@ bool find_unique_file(const std::vector<std::filesystem::path> &files, const Fil
 // Search an outer ZIP and at most one ZIP contained directly within it. Every regular entry is
 // decompressed and CRC-checked before matching. The matcher receives the archive-relative name and
 // a view valid for that call, allowing title identity to be checked from content rather than
-// archive layout. Exactly one entry must match across both levels. On success, the archive level
-// containing that entry is extracted atomically to destination and matched_file names the published
-// file. Neither destination nor matched_file changes on failure.
+// archive layout. This span-based matcher retains a complete expanded entry (bounded by
+// max_entry_bytes), plus the one nested archive when present; use extract_archive/extract_install
+// when complete entry buffers are unwanted. Exactly one entry must match across both levels. On
+// success, the archive level containing that entry is extracted atomically to destination and
+// matched_file names the published file. Neither destination nor matched_file changes on failure.
 bool extract_unique_install(const std::filesystem::path &archive,
                             const std::filesystem::path &destination, const ContentMatcher &matches,
                             std::filesystem::path &matched_file, std::string &error,
