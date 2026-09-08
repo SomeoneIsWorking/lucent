@@ -26,6 +26,9 @@ Optional Linux `lucent::file_dialog` adds GTK3/GIO without changing core depende
 - `file_dialog` owns one asynchronous Linux native file selection and its cancellation lifetime.
   `file_read` separately owns bounded GIO regular-file reads. Consumers poll these main-thread
   owners and retain file interpretation, validation, selection wording, and publication policy.
+- `file_store` owns asynchronous immutable backing files under a caller-supplied trusted parent,
+  aggregate byte/count budgets, private child ownership, and terminal cleanup after consumers have
+  released their native file handles. It does not own media formats or player policy.
 - `zip` owns safe ZIP entry discovery, bounded extraction, and exactly-one candidate selection for
   user-provided install archives. Consumers supply the destination and title-specific filename or
   content-identity matcher; game-specific archive layouts and validation do not belong in Lucent.

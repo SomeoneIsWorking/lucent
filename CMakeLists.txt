@@ -58,9 +58,11 @@ if(LUCENT_BUILD_FILE_DIALOG)
   find_package(PkgConfig REQUIRED)
   pkg_check_modules(GTK3 REQUIRED IMPORTED_TARGET gtk+-3.0>=3.20)
   pkg_check_modules(GIO_UNIX REQUIRED IMPORTED_TARGET gio-unix-2.0)
-  add_library(lucent_file_dialog STATIC src/file_dialog.cpp src/file_read.cpp src/file_read_open.cpp)
+  add_library(lucent_file_dialog STATIC
+    src/file_dialog.cpp src/file_read.cpp src/file_read_open.cpp
+    src/file_store.cpp src/file_store_directory.cpp)
   add_library(lucent::file_dialog ALIAS lucent_file_dialog)
-  target_link_libraries(lucent_file_dialog PRIVATE PkgConfig::GTK3 PkgConfig::GIO_UNIX)
+  target_link_libraries(lucent_file_dialog PRIVATE lucent PkgConfig::GTK3 PkgConfig::GIO_UNIX)
   target_include_directories(lucent_file_dialog PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>)
@@ -210,6 +212,11 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
       add_test(NAME lucent_file_read_tests COMMAND lucent_file_read_tests
         "${CMAKE_CURRENT_SOURCE_DIR}/scratch/file-read-tests")
       set_tests_properties(lucent_file_read_tests PROPERTIES TIMEOUT 30)
+      add_executable(lucent_file_store_tests tests/test_file_store.cpp)
+      target_link_libraries(lucent_file_store_tests PRIVATE lucent::file_dialog lucent)
+      add_test(NAME lucent_file_store_tests COMMAND lucent_file_store_tests
+        "${CMAKE_CURRENT_SOURCE_DIR}/scratch/file-store-tests")
+      set_tests_properties(lucent_file_store_tests PROPERTIES TIMEOUT 30)
     endif()
 
     # A SECOND binary, compiled from lucent's sources with the consumer-name macros set, because
