@@ -30,6 +30,21 @@ the reader or its consumer. Continue main-loop polling to dispatch cancelled GIO
 the reader's `poll()` services the context even while idle. Parsing and save publication remain
 consumer responsibilities.
 
+`lucent::file_store::FileStore` in `<lucent/file_store.h>` supplies immutable local backing paths
+for bytes that native decoders need to reopen. Construct it with an absolute, user-owned parent
+that is not group/other writable and aggregate byte/file budgets. It lazily creates its own `0700`
+child; `start(bytes, ".mp3")` stages binary content on a GIO worker and `poll()` publishes a unique
+read-only `0400` file only after its complete write. Suffixes are restricted to a dot plus 1–16 ASCII
+letters/digits. Every successful path stays valid for the store's lifetime; a later stage never
+overwrites it. Budget or I/O failures preserve prior paths. If removal of a failed output fails,
+the store refuses further staging to preserve its physical storage bound. Constructor/start/poll do not perform
+blocking disk operations. Terminal `close()`/destruction cancels and drains staging, then removes
+only owned files before returning; release decoder/file handles first. This final teardown may
+block, but does not rely on another main-loop tick or leave files on normal process exit.
+
+The structure verifier resolves sources from its repository rather than the caller's working
+directory and refuses a missing or empty source corpus, including when invoked by CTest.
+
 For this optional target's tests, install Xvfb and xauth, then configure with
 `cmake -S . -B build/file-dialog -G Ninja -DLUCENT_BUILD_FILE_DIALOG=ON`, build, and run
 `ctest --test-dir build/file-dialog --output-on-failure`. Tests use an isolated virtual display,

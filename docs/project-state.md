@@ -26,6 +26,7 @@ S007 is the current focus.
 | S010 | Native CMake and CTest verification runs on supported desktop hosts without game assets | partial | S001, S002, S003, S004, S005, S007, S008, S009 | G001 |
 | S011 | Linux applications select one local file asynchronously through a native GTK chooser | partial | — | G001 |
 | S012 | Linux applications read regular files asynchronously within a strict byte budget | verified | — | G001 |
+| S013 | Linux applications stage immutable binary backing files asynchronously with bounded lifetime storage | verified | S002 | G001 |
 
 ## Capability details
 
@@ -129,3 +130,14 @@ partial bytes; cancelled callbacks retain internal state only, never the reader 
 The descriptor-open discriminator swaps a regular path to a FIFO at the syscall boundary and proves
 nonblocking refusal plus descriptor closure. Replacing a regular pathname after open also proves
 reads retain the original validated descriptor rather than reopen the substituted path.
+
+### S013 — Immutable asynchronous backing files
+
+Evidence: `lucent_file_store_tests` stages binary NUL/invalid-UTF8 content through the production GIO
+worker and verifies byte equality, distinct immutable paths, aggregate count/byte refusal, invalid
+suffix and concurrent-request rejection, failure reservation rollback, trusted `0755` parents with
+private `0700` children and read-only `0400` files, unsafe/symlink-parent refusal, and store isolation.
+The worker seams exercise disk-write failure, cancellation during a real partial write, and failed
+output removal: further staging is refused without adding files, while terminal cleanup retries removal.
+A fresh subprocess publishes one file, starts another, and returns without further GLib pumping;
+terminal destruction drains and cleans all owned output before the process exits.
