@@ -132,9 +132,9 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     target_link_libraries(lucent_touch_tests PRIVATE lucent)
     add_test(NAME lucent_touch_tests COMMAND lucent_touch_tests)
 
-    # Keep the Android-side contact lifetime state machine executable without requiring an Android
-    # SDK, device, or SDL Java source tree. LucentActivity's MotionEvent adapter is compiled by an
-    # Android consumer; this test owns the platform-independent state it delegates to.
+    # Keep Android contact and import lifetimes executable without an Android SDK or device.
+    # The Activity/service API adapters are compiled by Android consumers; these tests exercise
+    # the platform-independent owners they delegate to.
     find_package(Java COMPONENTS Development QUIET)
     if(Java_JAVAC_EXECUTABLE)
       get_filename_component(_lucent_javac "${Java_JAVAC_EXECUTABLE}" REALPATH)
@@ -144,24 +144,30 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         message(FATAL_ERROR
           "Lucent found javac at ${Java_JAVAC_EXECUTABLE}, but its matching java runtime is missing")
       endif()
-      set(_lucent_android_touch_classes "${CMAKE_CURRENT_BINARY_DIR}/android_touch_contacts")
-      set(_lucent_android_touch_test
-        "${CMAKE_CURRENT_SOURCE_DIR}/platforms/android/tests/io/github/someoneisworking/lucent/LucentTouchContactsTest.java")
-      add_custom_command(
-        OUTPUT "${_lucent_android_touch_classes}/io/github/someoneisworking/lucent/LucentTouchContactsTest.class"
-        COMMAND "${CMAKE_COMMAND}" -E make_directory "${_lucent_android_touch_classes}"
-        COMMAND "${_lucent_javac}" --release 17 -d "${_lucent_android_touch_classes}"
-          "${CMAKE_CURRENT_SOURCE_DIR}/platforms/android/java/io/github/someoneisworking/lucent/LucentTouchContacts.java"
-          "${_lucent_android_touch_test}"
-        DEPENDS
-          "${CMAKE_CURRENT_SOURCE_DIR}/platforms/android/java/io/github/someoneisworking/lucent/LucentTouchContacts.java"
-          "${_lucent_android_touch_test}"
-        VERBATIM)
-      add_custom_target(lucent_android_touch_contacts_classes ALL
-        DEPENDS "${_lucent_android_touch_classes}/io/github/someoneisworking/lucent/LucentTouchContactsTest.class")
-      add_test(NAME lucent_android_touch_contacts
-        COMMAND "${_lucent_java_runtime}" -cp "${_lucent_android_touch_classes}"
-          io.github.someoneisworking.lucent.LucentTouchContactsTest)
+      # Both pure Java owners are the implementations used by the Android adapters.
+      foreach(_lucent_android_owner IN ITEMS TouchContacts ImportLifetime)
+        set(_lucent_android_classes "${CMAKE_CURRENT_BINARY_DIR}/android_${_lucent_android_owner}")
+        set(_lucent_android_source
+          "${CMAKE_CURRENT_SOURCE_DIR}/platforms/android/java/io/github/someoneisworking/lucent/Lucent${_lucent_android_owner}.java")
+        set(_lucent_android_test
+          "${CMAKE_CURRENT_SOURCE_DIR}/platforms/android/tests/io/github/someoneisworking/lucent/Lucent${_lucent_android_owner}Test.java")
+        set(_lucent_android_test_class
+          "${_lucent_android_classes}/io/github/someoneisworking/lucent/Lucent${_lucent_android_owner}Test.class")
+        add_custom_command(
+          OUTPUT "${_lucent_android_test_class}"
+          COMMAND "${CMAKE_COMMAND}" -E make_directory "${_lucent_android_classes}"
+          COMMAND "${_lucent_javac}" --release 17 -d "${_lucent_android_classes}"
+            "${_lucent_android_source}" "${_lucent_android_test}"
+          DEPENDS "${_lucent_android_source}" "${_lucent_android_test}"
+          VERBATIM)
+        string(REGEX REPLACE "([a-z])([A-Z])" "\\1_\\2" _lucent_android_name "${_lucent_android_owner}")
+        string(TOLOWER "${_lucent_android_name}" _lucent_android_name)
+        add_custom_target(lucent_android_${_lucent_android_name}_classes ALL
+          DEPENDS "${_lucent_android_test_class}")
+        add_test(NAME lucent_android_${_lucent_android_name}
+          COMMAND "${_lucent_java_runtime}" -cp "${_lucent_android_classes}"
+            io.github.someoneisworking.lucent.Lucent${_lucent_android_owner}Test)
+      endforeach()
     endif()
 
     add_executable(lucent_platform_tests tests/test_platform.cpp)
