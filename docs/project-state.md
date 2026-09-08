@@ -35,9 +35,11 @@ S007 is the current focus.
 
 The optional `lucent::web` worker mount/write/unmount/remount/read/remove test
 passed in an isolated Chromium browser through WebLua, including six invalid
-mount operations. Unmount preserves stored files and releases OPFS handles on
-the application worker before SDK shutdown; the browser console has no blocking
-warning on this path. `FileStager` streamed an 11-byte Blob into real OPFS, reported the
+mount operations. Unmount preserves stored files and releases OPFS file handles
+on the application worker before SDK shutdown. The SDK's global backend registry
+still joins its OPFS worker on the browser main thread during runtime destruction;
+the complete consumer with assertions enabled exposed this remaining lifecycle
+gap. `FileStager` streamed an 11-byte Blob into real OPFS, reported the
 same byte count, reproduced its contents, and refused a file above its byte
 limit. A fresh origin denied the requested persistence grant; the API reports
 that result so callers can explain possible browser eviction. Large real-title
