@@ -165,8 +165,8 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         message(FATAL_ERROR
           "Lucent found javac at ${Java_JAVAC_EXECUTABLE}, but its matching java runtime is missing")
       endif()
-      # Both pure Java owners are the implementations used by the Android adapters.
-      foreach(_lucent_android_owner IN ITEMS TouchContacts ImportLifetime ImportPromotion)
+      # The pure Java owners are the implementations used by the Android adapters.
+      foreach(_lucent_android_owner IN ITEMS TouchContacts ImportLifetime ImportPromotion ImportRequest)
         set(_lucent_android_classes "${CMAKE_CURRENT_BINARY_DIR}/android_${_lucent_android_owner}")
         set(_lucent_android_source
           "${CMAKE_CURRENT_SOURCE_DIR}/platforms/android/java/io/github/someoneisworking/lucent/Lucent${_lucent_android_owner}.java")

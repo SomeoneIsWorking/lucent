@@ -5,6 +5,7 @@ import android.content.ActivityNotFoundException;
 import android.content.Intent;
 import android.database.Cursor;
 import android.net.Uri;
+import android.os.Bundle;
 import android.os.ParcelFileDescriptor;
 import android.os.SystemClock;
 import android.provider.DocumentsContract;
@@ -90,10 +91,7 @@ public final class LucentDocumentImport {
 
     private final Activity activity;
     private final Limits limits;
-    private Callback callback;
-    private int requestCode;
-    private boolean treeRequest;
-    private boolean pickerOpen;
+    private final LucentImportRequest<Callback> request = new LucentImportRequest<>();
     private boolean workerActive;
     private Thread worker;
     private ProgressListener progressListener;
@@ -114,7 +112,29 @@ public final class LucentDocumentImport {
     }
 
     public synchronized boolean active() {
-        return pickerOpen || workerActive;
+        return request.pending() || workerActive;
+    }
+
+    /** Save while the external picker is open, including Activity process recreation. */
+    public synchronized Bundle savePickerState() {
+        LucentImportRequest.Snapshot pending = request.snapshot();
+        if (pending == null) return null;
+        Bundle state = new Bundle();
+        state.putInt("requestCode", pending.code);
+        state.putBoolean("tree", pending.tree);
+        return state;
+    }
+
+    /** Call from onCreate before Android delivers onActivityResult to the new Activity. */
+    public synchronized boolean restorePickerState(Bundle state, Callback callback) {
+        if (state == null) return false;
+        if (active()) throw new IllegalStateException("an import is already active");
+        if (!state.containsKey("requestCode") || !state.containsKey("tree")) {
+            throw new IllegalArgumentException("incomplete picker state");
+        }
+        request.restore(new LucentImportRequest.Snapshot(
+                state.getInt("requestCode"), state.getBoolean("tree")), callback);
+        return true;
     }
 
     public synchronized void pickDocument(int requestCode, Callback callback) {
@@ -142,10 +162,7 @@ public final class LucentDocumentImport {
         if (tree) {
             intent.addFlags(Intent.FLAG_GRANT_PREFIX_URI_PERMISSION);
         }
-        this.callback = callback;
-        this.requestCode = requestCode;
-        this.treeRequest = tree;
-        this.pickerOpen = true;
+        request.begin(requestCode, tree, callback);
         try {
             activity.startActivityForResult(intent, requestCode);
         } catch (ActivityNotFoundException error) {
@@ -155,10 +172,9 @@ public final class LucentDocumentImport {
 
     /** Returns true only if this controller owns the completed request. */
     public synchronized boolean handleActivityResult(int code, int resultCode, Intent data) {
-        if (!pickerOpen || code != requestCode) {
+        if (!request.accept(code)) {
             return false;
         }
-        pickerOpen = false;
         Uri source = resultCode == Activity.RESULT_OK && data != null ? data.getData() : null;
         if (source == null) {
             finishCancelled();
@@ -171,7 +187,7 @@ public final class LucentDocumentImport {
             return true;
         }
         workerActive = true;
-        boolean isTree = treeRequest;
+        boolean isTree = request.tree();
         worker = new Thread(() -> importSelection(source, isTree), "lucent-document-import");
         worker.start();
         return true;
@@ -526,12 +542,9 @@ public final class LucentDocumentImport {
     }
 
     private Callback clearCallback() {
-        pickerOpen = false;
         workerActive = false;
         worker = null;
-        Callback completed = callback;
-        callback = null;
-        return completed;
+        return request.complete();
     }
 
 
