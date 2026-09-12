@@ -106,13 +106,17 @@ void publish_snapshot_locked() {
 // unknown-and-empty.
 bool enabled_in_snapshot(std::string_view channel) {
   const ChannelSnapshot *snap = g_snapshot.load(std::memory_order_acquire);
-  if (!snap)
+  if (!snap) {
     return false;
-  if (snap->all)
+  }
+  if (snap->all) {
     return true;
-  for (const std::string &name : snap->names)
-    if (name == channel)
+  }
+  for (const std::string &name : snap->names) {
+    if (name == channel) {
       return true;
+    }
+  }
   return false;
 }
 
@@ -140,8 +144,9 @@ bool channel_enabled_locked(std::string_view channel) {
 }
 
 void load_channels_locked() {
-  if (state().channels_loaded)
+  if (state().channels_loaded) {
     return;
+  }
   state().channels_loaded = true;
   // NOT config::text("LUCENT_DEBUG"): which variable this is comes from config, so that a consumer
   // can name it (PSXPORT_DEBUG) at build time and this lazy first-use load already reads the right
@@ -160,24 +165,29 @@ void load_channels_locked() {
     const std::size_t comma = list.find(',', start);
     const std::size_t end = (comma == std::string::npos) ? list.size() : comma;
     std::string name = list.substr(start, end - start);
-    while (!name.empty() && name.front() == ' ')
+    while (!name.empty() && name.front() == ' ') {
       name.erase(name.begin());
-    while (!name.empty() && name.back() == ' ')
+    }
+    while (!name.empty() && name.back() == ' ') {
       name.pop_back();
-    if (name == "all")
+    }
+    if (name == "all") {
       state().all_channels = true;
-    else if (!name.empty())
+    } else if (!name.empty()) {
       state().channels.insert(std::move(name));
-    if (comma == std::string::npos)
+    }
+    if (comma == std::string::npos) {
       break;
+    }
     start = comma + 1;
   }
   refresh_any_enabled_locked();
 }
 
 std::FILE *stream_locked() {
-  if (state().stream)
+  if (state().stream) {
     return state().stream;
+  }
   const std::string &path = config::log_file_path();
   if (!path.empty()) {
     if (std::FILE *f = std::fopen(path.c_str(), "a")) {
@@ -247,8 +257,9 @@ void log(Level level, std::string_view channel, std::string_view message) {
   // Leading newlines are blank-line separators a caller uses to set a banner apart. Emit them
   // before the prefix, otherwise the tag ends up stranded on the line above its own message.
   std::size_t lead = 0;
-  while (lead < message.size() && message[lead] == '\n')
+  while (lead < message.size() && message[lead] == '\n') {
     ++lead;
+  }
   const std::string_view body = message.substr(lead);
 
   std::string line;
@@ -273,12 +284,14 @@ void log(Level level, std::string_view channel, std::string_view message) {
 namespace detail {
 bool channel_enabled(std::string_view channel) {
   // No lock, no allocation, no hash: once the set is known to be empty, nothing can be enabled.
-  if (g_loaded.load(std::memory_order_relaxed) && !g_any_enabled.load(std::memory_order_relaxed))
+  if (g_loaded.load(std::memory_order_relaxed) && !g_any_enabled.load(std::memory_order_relaxed)) {
     return false;
+  }
   // Channels ARE enabled, and this one may not be. Still no lock and no allocation: the snapshot
   // answers it. This is the path that used to cost 18.9 ns and 6.4% of a profiling run.
-  if (g_loaded.load(std::memory_order_relaxed))
+  if (g_loaded.load(std::memory_order_relaxed)) {
     return enabled_in_snapshot(channel);
+  }
   // First call only: nothing has read the environment yet. Load it, which publishes a snapshot, and
   // then answer from that snapshot like everyone else.
   {
@@ -290,10 +303,12 @@ bool channel_enabled(std::string_view channel) {
 
 void rearm_channels_from_env() {
   std::lock_guard lock(state().mutex);
-  if (state().channels_explicit)
+  if (state().channels_explicit) {
     return; // an explicit enable_channels() outranks the environment
-  if (!state().channels_loaded)
+  }
+  if (!state().channels_loaded) {
     return; // nothing loaded yet; the next call reads the new name
+  }
   state().channels.clear();
   state().all_channels = false;
   state().channels_loaded = false;
@@ -337,16 +352,20 @@ void enable_channels(std::string_view list) {
     const std::size_t comma = text.find(',', start);
     const std::size_t end = (comma == std::string::npos) ? text.size() : comma;
     std::string name = text.substr(start, end - start);
-    while (!name.empty() && name.front() == ' ')
+    while (!name.empty() && name.front() == ' ') {
       name.erase(name.begin());
-    while (!name.empty() && name.back() == ' ')
+    }
+    while (!name.empty() && name.back() == ' ') {
       name.pop_back();
-    if (name == "all")
+    }
+    if (name == "all") {
       state().all_channels = true;
-    else if (!name.empty())
+    } else if (!name.empty()) {
       state().channels.insert(std::move(name));
-    if (comma == std::string::npos)
+    }
+    if (comma == std::string::npos) {
       break;
+    }
     start = comma + 1;
   }
   refresh_any_enabled_locked();
@@ -357,10 +376,11 @@ void enable_channel(std::string_view channel, bool on) {
   load_channels_locked();
   state().channels_explicit = true;
   std::string key(channel);
-  if (on)
+  if (on) {
     state().channels.insert(key);
-  else
+  } else {
     state().channels.erase(key);
+  }
   refresh_any_enabled_locked();
 }
 
@@ -370,8 +390,9 @@ void set_sink(Sink sink) {
 }
 
 void Line::append(std::string_view piece) {
-  if (truncated_)
+  if (truncated_) {
     return;
+  }
   if (text_.size() + piece.size() > kMaxLength) {
     text_.append(piece.substr(0, kMaxLength - text_.size()));
     text_.append("...");
@@ -382,25 +403,30 @@ void Line::append(std::string_view piece) {
 }
 
 void Line::flush(Level level, std::string_view channel) {
-  if (text_.empty())
+  if (text_.empty()) {
     return;
+  }
   log(level, channel, text_);
   clear();
 }
 
 void Line::flush_debug(std::string_view channel) {
-  if (text_.empty())
+  if (text_.empty()) {
     return;
-  if (detail::channel_enabled(channel))
+  }
+  if (detail::channel_enabled(channel)) {
     log(Level::Debug, channel, text_);
+  }
   clear();
 }
 
 void Line::flush_debug(const Channel &channel) {
-  if (text_.empty())
+  if (text_.empty()) {
     return;
-  if (channel.enabled())
+  }
+  if (channel.enabled()) {
     log(Level::Debug, channel.name(), text_);
+  }
   clear();
 }
 

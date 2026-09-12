@@ -95,8 +95,9 @@ inline Socket accept_socket(Socket listener) {
 }
 
 inline void close_socket(Socket socket) {
-  if (is_invalid_socket(socket))
+  if (is_invalid_socket(socket)) {
     return;
+  }
 #ifdef _WIN32
   closesocket(native_socket(socket));
 #else
@@ -107,8 +108,9 @@ inline void close_socket(Socket socket) {
 inline void set_close_on_exec(Socket socket) {
 #ifndef _WIN32
   const int flags = fcntl(native_socket(socket), F_GETFD);
-  if (flags >= 0)
+  if (flags >= 0) {
     fcntl(native_socket(socket), F_SETFD, flags | FD_CLOEXEC);
+  }
 #else
   (void)socket;
 #endif

@@ -12,8 +12,9 @@ namespace {
 int failures = 0;
 
 void check(bool condition, std::string_view message) {
-  if (condition)
+  if (condition) {
     return;
+  }
   std::cerr << "FAIL: " << message << '\n';
   ++failures;
 }

@@ -105,7 +105,9 @@ void lifecycle_and_selection(const std::filesystem::path &file) {
     rejected = true;
   }
   require(rejected && picker.active(), "Busy request must preserve the active dialog");
-  until(picker, [] { return chooser_window() != nullptr; });
+  until(picker, [] {
+    return chooser_window() != nullptr;
+  });
   auto *chooser = GTK_FILE_CHOOSER(chooser_window());
   const Window chooser_xid = gdk_x11_window_get_xid(gtk_widget_get_window(GTK_WIDGET(chooser)));
   require(!gtk_file_chooser_get_select_multiple(chooser), "Picker must be single-file");
@@ -119,7 +121,9 @@ void lifecycle_and_selection(const std::filesystem::path &file) {
   });
   gtk_dialog_response(GTK_DIALOG(chooser), GTK_RESPONSE_ACCEPT);
   require(results.empty(), "GTK response must defer the application callback until poll");
-  until(picker, [&] { return !results.empty(); });
+  until(picker, [&] {
+    return !results.empty();
+  });
   require_unmapped(chooser_xid);
   require(results.size() == 1 && results[0].status == Status::Selected && results[0].path == file &&
               results[0].error.empty(),
@@ -128,10 +132,14 @@ void lifecycle_and_selection(const std::filesystem::path &file) {
   require(results.size() == 1, "Selection callback must not repeat");
 
   picker.open("Lucent cancellation", completed);
-  until(picker, [] { return chooser_window() != nullptr; });
+  until(picker, [] {
+    return chooser_window() != nullptr;
+  });
   const Window cancelled_xid = gdk_x11_window_get_xid(gtk_widget_get_window(chooser_window()));
   gtk_dialog_response(GTK_DIALOG(chooser_window()), GTK_RESPONSE_CANCEL);
-  until(picker, [&] { return results.size() == 2; });
+  until(picker, [&] {
+    return results.size() == 2;
+  });
   require_unmapped(cancelled_xid);
   require(results.back().status == Status::Cancelled && results.back().path.empty(),
           "Real GTK cancellation must not select a file");
@@ -143,22 +151,27 @@ void lifecycle_and_selection(const std::filesystem::path &file) {
   require(results.size() == 3 && results.back().status == Status::Cancelled,
           "Programmatic cancellation must complete exactly once");
   picker.open("Lucent close suppression", completed);
-  until(picker, [] { return chooser_window() != nullptr; });
+  until(picker, [] {
+    return chooser_window() != nullptr;
+  });
   const Window closed_xid = gdk_x11_window_get_xid(gtk_widget_get_window(chooser_window()));
   picker.close();
   require_unmapped(closed_xid);
   picker.poll();
   require(results.size() == 3 && !picker.active(), "Close must suppress completion");
 
-  picker.open("Lucent reentrant completion",
-              [&](const Result &) { picker.open("reopened", completed); });
+  picker.open("Lucent reentrant completion", [&](const Result &) {
+    picker.open("reopened", completed);
+  });
   picker.cancel();
   picker.poll();
   require(picker.active(), "Completion must be allowed to reopen the picker");
   picker.close();
 
   auto owned = std::make_unique<FileDialog>();
-  owned->open("Destroy from completion", [&](const Result &) { owned.reset(); });
+  owned->open("Destroy from completion", [&](const Result &) {
+    owned.reset();
+  });
   owned->cancel();
   owned->poll();
   require(owned == nullptr, "Completion must be allowed to destroy its picker");
@@ -175,7 +188,9 @@ void lifecycle_and_selection(const std::filesystem::path &file) {
 void missing_display() {
   FileDialog picker;
   std::vector<Result> results;
-  picker.open("No display", [&](Result result) { results.push_back(std::move(result)); });
+  picker.open("No display", [&](Result result) {
+    results.push_back(std::move(result));
+  });
   require(results.empty() && picker.active(), "Initialization failure must be deferred");
   picker.poll();
   require(results.size() == 1 && results[0].status == Status::Error && results[0].path.empty() &&

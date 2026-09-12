@@ -54,8 +54,9 @@ void priority_and_cancel() {
 int main() {
   capture_and_multitouch();
   priority_and_cancel();
-  if (failures != 0)
+  if (failures != 0) {
     return 1;
+  }
   std::cout << "touch router: all checks passed\n";
   return 0;
 }

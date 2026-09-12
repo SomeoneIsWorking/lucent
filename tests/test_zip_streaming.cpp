@@ -24,8 +24,11 @@ void check(bool passed, std::string_view message) {
 
 class ObservedArchive final : public ArchiveReader {
 public:
-  explicit ObservedArchive(ArchiveReader &source) : source_(source) {}
-  std::uint64_t size() const override { return source_.size(); }
+  explicit ObservedArchive(ArchiveReader &source) : source_(source) {
+  }
+  std::uint64_t size() const override {
+    return source_.size();
+  }
   std::size_t calls = 0, largest = 0;
   std::uint64_t bytes = 0;
   std::uint64_t readable_size = std::numeric_limits<std::uint64_t>::max();
@@ -60,8 +63,9 @@ void stream_fixture(unsigned method) {
   std::string error;
   check(entries(archive, directory, {}, budget, error) && directory.size() == 1,
         "production parser reads streaming fixture");
-  if (directory.empty())
+  if (directory.empty()) {
     return;
+  }
   std::size_t emitted = 0, largest_output = 0;
   const auto receive = [&](ByteView chunk) {
     largest_output = std::max(largest_output, chunk.size());
@@ -75,7 +79,11 @@ void stream_fixture(unsigned method) {
             largest_output <= read_chunk_bytes,
         "archive input and expanded output use bounded chunks");
   check(!stream_entry(
-            archive, directory[0], [](ByteView) { return false; }, error) &&
+            archive, directory[0],
+            [](ByteView) {
+              return false;
+            },
+            error) &&
             error.find("could not write") != std::string::npos,
         "output failure is propagated");
   archive.readable_size = 30 + directory[0].name.size() + directory[0].compressed_size - 1;
@@ -124,10 +132,13 @@ void large_sparse_archive() {
   u16(end, 0);
   {
     std::ofstream output(path, std::ios::binary | std::ios::trunc);
-    output.write(reinterpret_cast<const char *>(local.data()), local.size());
+    output.write(reinterpret_cast<const char *>(local.data()),
+                 static_cast<std::streamsize>(local.size()));
     output.seekp(static_cast<std::streamoff>(central_at));
-    output.write(reinterpret_cast<const char *>(central.data()), central.size());
-    output.write(reinterpret_cast<const char *>(end.data()), end.size());
+    output.write(reinterpret_cast<const char *>(central.data()),
+                 static_cast<std::streamsize>(central.size()));
+    output.write(reinterpret_cast<const char *>(end.data()),
+                 static_cast<std::streamsize>(end.size()));
     check(static_cast<bool>(output), "creates sparse 1.5GiB archive fixture");
   }
   ExtractionLimits limits;
@@ -141,9 +152,10 @@ void large_sparse_archive() {
     Budget budget;
     check(entries(archive, directory, limits, budget, error) && directory.size() == 1,
           "reads central directory beyond 1.5GiB through production reader");
-    if (!directory.empty())
+    if (!directory.empty()) {
       check(stream_entry(archive, directory[0], {}, error), "validates sparse archive entry");
-    check(archive.bytes < 128 * 1024 && archive.largest <= read_chunk_bytes,
+    }
+    check(archive.bytes < std::uint64_t{128} * 1024 && archive.largest <= read_chunk_bytes,
           "sparse large archive inspects less than 128KiB in bounded reads");
     std::filesystem::path selected = "previous-selection";
     check(extract_install(path, destination, "Game.exe", selected, error, limits) &&

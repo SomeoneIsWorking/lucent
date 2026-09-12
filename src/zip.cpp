@@ -45,8 +45,9 @@ bool write_entries(ArchiveReader &bytes, const std::vector<Entry> &archive_entri
                    static_cast<std::streamsize>(chunk.size()));
       return static_cast<bool>(output);
     };
-    if (!stream_entry(bytes, entry, write, error))
+    if (!stream_entry(bytes, entry, write, error)) {
       return false;
+    }
     output.close();
     if (!output) {
       error = "could not finish extracted archive file: " + output_path.string();
@@ -59,8 +60,9 @@ bool write_entries(ArchiveReader &bytes, const std::vector<Entry> &archive_entri
 void discard_staging(const std::filesystem::path &staging, std::string &error) {
   std::error_code cleanup_error;
   std::filesystem::remove_all(staging, cleanup_error);
-  if (cleanup_error)
+  if (cleanup_error) {
     error += "; additionally could not remove extraction staging directory: " + staging.string();
+  }
 }
 
 bool extract_atomically(ArchiveReader &bytes, const std::vector<Entry> &archive_entries,
@@ -102,16 +104,18 @@ bool extract_atomically(ArchiveReader &bytes, const std::vector<Entry> &archive_
 
   std::vector<std::filesystem::path> published;
   for (const Entry &entry : archive_entries) {
-    if (entry.name.back() != '/')
+    if (entry.name.back() != '/') {
       published.push_back(destination / std::filesystem::path(entry.name));
+    }
   }
   files.swap(published);
   return true;
 }
 
 bool zip_candidate(const Entry &entry, ByteView content) {
-  if (equal_name(std::filesystem::path(entry.name).extension().string(), ".zip"))
+  if (equal_name(std::filesystem::path(entry.name).extension().string(), ".zip")) {
     return true;
+  }
   return content.size() >= 4 && content[0] == 'P' && content[1] == 'K' &&
          ((content[2] == 3 && content[3] == 4) || (content[2] == 5 && content[3] == 6));
 }
@@ -125,8 +129,9 @@ bool match_content(const ContentMatcher &matches, const Entry &entry, ByteView c
     error = "content matcher failed for " + entry.name + ": " + exception.what();
     return false;
   }
-  if (!matched)
+  if (!matched) {
     return true;
+  }
   if (candidate.entry != nullptr) {
     error = "more than one archive entry matched the required content identity";
     return false;
@@ -139,20 +144,24 @@ bool inspect_inner_archive(ArchiveReader &inner_bytes, const ContentMatcher &mat
                            const ExtractionLimits &limits, Budget &budget,
                            std::vector<Entry> &inner_entries, Candidate &candidate,
                            std::string &error) {
-  if (!entries(inner_bytes, inner_entries, limits, budget, error))
+  if (!entries(inner_bytes, inner_entries, limits, budget, error)) {
     return false;
+  }
   Bytes content;
   for (const Entry &entry : inner_entries) {
-    if (!unpack_entry(inner_bytes, entry, content, error))
+    if (!unpack_entry(inner_bytes, entry, content, error)) {
       return false;
-    if (entry.name.back() == '/')
+    }
+    if (entry.name.back() == '/') {
       continue;
+    }
     if (zip_candidate(entry, content)) {
       error = "archive contains a ZIP nested more than one level deep: " + entry.name;
       return false;
     }
-    if (!match_content(matches, entry, content, candidate, true, error))
+    if (!match_content(matches, entry, content, candidate, true, error)) {
       return false;
+    }
   }
   return true;
 }
@@ -166,8 +175,9 @@ bool extract_unique_install_impl(ArchiveReader &archive, const std::filesystem::
   }
   Budget budget;
   std::vector<Entry> outer_entries;
-  if (!entries(archive, outer_entries, limits, budget, error))
+  if (!entries(archive, outer_entries, limits, budget, error)) {
     return false;
+  }
 
   Candidate candidate;
   Bytes content;
@@ -175,13 +185,16 @@ bool extract_unique_install_impl(ArchiveReader &archive, const std::filesystem::
   std::vector<Entry> inner_entries;
   bool found_nested_archive = false;
   for (const Entry &entry : outer_entries) {
-    if (!unpack_entry(archive, entry, content, error))
+    if (!unpack_entry(archive, entry, content, error)) {
       return false;
-    if (entry.name.back() == '/')
+    }
+    if (entry.name.back() == '/') {
       continue;
+    }
     if (!zip_candidate(entry, content)) {
-      if (!match_content(matches, entry, content, candidate, false, error))
+      if (!match_content(matches, entry, content, candidate, false, error)) {
         return false;
+      }
       continue;
     }
     if (found_nested_archive) {
@@ -210,8 +223,9 @@ bool extract_unique_install_impl(ArchiveReader &archive, const std::filesystem::
       candidate.nested ? static_cast<ArchiveReader &>(inner_archive) : archive;
   const std::vector<Entry> &selected_entries = candidate.nested ? inner_entries : outer_entries;
   const std::string selected_name = candidate.entry->name;
-  if (!extract_atomically(selected_bytes, selected_entries, destination, files, error))
+  if (!extract_atomically(selected_bytes, selected_entries, destination, files, error)) {
     return false;
+  }
   matched_file = destination / std::filesystem::path(selected_name);
   return true;
 }
@@ -266,8 +280,9 @@ bool find_unique_file(const std::vector<std::filesystem::path> &files, const Fil
   std::filesystem::path selected;
   try {
     for (const std::filesystem::path &candidate : files) {
-      if (!matches(candidate))
+      if (!matches(candidate)) {
         continue;
+      }
       if (!selected.empty()) {
         error = "more than one extracted file matched the required identity";
         return false;
@@ -320,6 +335,8 @@ bool extract_unique_install(std::span<const std::uint8_t> archive,
   return true;
 }
 
+// Keep the existing source API while archive and destination retain distinct documented roles.
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 bool extract_install(const std::filesystem::path &archive, const std::filesystem::path &destination,
                      std::string_view required_name, std::filesystem::path &executable,
                      std::string &error, ExtractionLimits limits) {

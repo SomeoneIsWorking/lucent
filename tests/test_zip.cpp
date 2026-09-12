@@ -22,7 +22,8 @@ int main() {
   {
     std::ofstream output(archive, std::ios::binary);
     const auto bytes = make_archive();
-    output.write(reinterpret_cast<const char *>(bytes.data()), bytes.size());
+    output.write(reinterpret_cast<const char *>(bytes.data()),
+                 static_cast<std::streamsize>(bytes.size()));
   }
   std::filesystem::path executable;
   std::string error;
@@ -44,13 +45,21 @@ int main() {
     return 1;
   }
   if (lucent::zip::find_unique_file(
-          extracted_files, [](const auto &) { return false; }, executable, error) ||
+          extracted_files,
+          [](const auto &) {
+            return false;
+          },
+          executable, error) ||
       error.find("no extracted file") == std::string::npos) {
     std::cerr << "missing identity was not refused: " << error << "\n";
     return 1;
   }
   if (lucent::zip::find_unique_file(
-          extracted_files, [](const auto &) { return true; }, executable, error) ||
+          extracted_files,
+          [](const auto &) {
+            return true;
+          },
+          executable, error) ||
       error.find("more than one") == std::string::npos) {
     std::cerr << "ambiguous identity was not refused: " << error << "\n";
     return 1;
@@ -67,7 +76,8 @@ int main() {
     auto bytes = make_archive();
     bytes[6] = 1;
     std::ofstream output(mismatch_archive, std::ios::binary);
-    output.write(reinterpret_cast<const char *>(bytes.data()), bytes.size());
+    output.write(reinterpret_cast<const char *>(bytes.data()),
+                 static_cast<std::streamsize>(bytes.size()));
   }
   extracted_files.clear();
   if (lucent::zip::extract_archive(mismatch_archive, destination, extracted_files, error) ||
@@ -90,7 +100,8 @@ int main() {
     }
     *(local_name + static_cast<std::ptrdiff_t>(name.size())) ^= 1;
     std::ofstream output(corrupt_archive, std::ios::binary);
-    output.write(reinterpret_cast<const char *>(bytes.data()), bytes.size());
+    output.write(reinterpret_cast<const char *>(bytes.data()),
+                 static_cast<std::streamsize>(bytes.size()));
   }
   extracted_files.clear();
   if (lucent::zip::extract_archive(corrupt_archive, destination, extracted_files, error) ||
@@ -123,20 +134,24 @@ int main() {
 
   lucent::zip::ExtractionLimits limits;
   limits.max_archive_bytes = std::filesystem::file_size(archive) - 1;
-  if (!expect_refused(limits, "compressed byte limit"))
+  if (!expect_refused(limits, "compressed byte limit")) {
     return 1;
+  }
   limits = {};
   limits.max_entries = 1;
-  if (!expect_refused(limits, "entry-count limit"))
+  if (!expect_refused(limits, "entry-count limit")) {
     return 1;
+  }
   limits = {};
   limits.max_entry_bytes = 5;
-  if (!expect_refused(limits, "entry exceeds"))
+  if (!expect_refused(limits, "entry exceeds")) {
     return 1;
+  }
   limits = {};
   limits.max_extracted_bytes = 10;
-  if (!expect_refused(limits, "total expanded byte limit"))
+  if (!expect_refused(limits, "total expanded byte limit")) {
     return 1;
+  }
 
   const auto inner =
       make_archive({{"Disc/SLUS_010.40", "title identity", 8}, {"Disc/SYSTEM.CNF", "BOOT", 0}});
@@ -172,7 +187,8 @@ int main() {
       make_archive({{"Disc/SLUS_010.40", "title identity", 8}, {"Disc/SYSTEM.CNF", "BOOT", 0}});
   {
     std::ofstream output(direct_archive, std::ios::binary);
-    output.write(reinterpret_cast<const char *>(direct.data()), direct.size());
+    output.write(reinterpret_cast<const char *>(direct.data()),
+                 static_cast<std::streamsize>(direct.size()));
   }
   const std::filesystem::path direct_destination = "zip-test-direct-output";
   if (!lucent::zip::extract_unique_install(direct_archive, direct_destination, identity, executable,
@@ -204,57 +220,73 @@ int main() {
 
   const auto duplicate_identity =
       make_archive({{"direct.bin", "title identity", 0}, {"nested.zip", bytes_string(inner), 0}});
-  if (!expect_unique_refused(duplicate_identity, identity, {}, "more than one archive entry"))
+  if (!expect_unique_refused(duplicate_identity, identity, {}, "more than one archive entry")) {
     return 1;
+  }
   if (!expect_unique_refused(
-          outer, [](std::string_view, auto) { return false; }, {}, "no archive entry"))
+          outer,
+          [](std::string_view, auto) {
+            return false;
+          },
+          {}, "no archive entry")) {
     return 1;
-  if (!expect_unique_refused(outer, {}, {}, "matcher is empty"))
+  }
+  if (!expect_unique_refused(outer, {}, {}, "matcher is empty")) {
     return 1;
+  }
 
   const auto unsafe_inner = make_archive({{"../SLUS_010.40", "title identity", 0}});
   const auto unsafe_outer = make_archive({{"unsafe.zip", bytes_string(unsafe_inner), 0}});
-  if (!expect_unique_refused(unsafe_outer, identity, {}, "unsafe path"))
+  if (!expect_unique_refused(unsafe_outer, identity, {}, "unsafe path")) {
     return 1;
+  }
   const auto aliased_inner =
       make_archive({{"Disc/game.bin", "title identity", 0}, {"disc/GAME.BIN", "other", 0}});
   const auto aliased_outer = make_archive({{"aliases.zip", bytes_string(aliased_inner), 0}});
-  if (!expect_unique_refused(aliased_outer, identity, {}, "duplicate output paths"))
+  if (!expect_unique_refused(aliased_outer, identity, {}, "duplicate output paths")) {
     return 1;
+  }
   const auto device_inner = make_archive({{"Disc/CON.txt", "title identity", 0}});
   const auto device_outer = make_archive({{"device.zip", bytes_string(device_inner), 0}});
-  if (!expect_unique_refused(device_outer, identity, {}, "unsafe path"))
+  if (!expect_unique_refused(device_outer, identity, {}, "unsafe path")) {
     return 1;
+  }
 
   auto corrupt_inner = make_archive({{"Disc/SLUS_010.40", "title identity", 0}});
   corrupt_inner[30 + std::string_view{"Disc/SLUS_010.40"}.size()] ^= 0xff;
   const auto corrupt_outer = make_archive({{"corrupt.zip", bytes_string(corrupt_inner), 0}});
-  if (!expect_unique_refused(corrupt_outer, identity, {}, "CRC validation"))
+  if (!expect_unique_refused(corrupt_outer, identity, {}, "CRC validation")) {
     return 1;
+  }
 
   const auto deepest = make_archive({{"game.bin", "title identity", 0}});
   const auto middle = make_archive({{"again.zip", bytes_string(deepest), 0}});
   const auto too_deep = make_archive({{"inside.zip", bytes_string(middle), 0}});
-  if (!expect_unique_refused(too_deep, identity, {}, "more than one level deep"))
+  if (!expect_unique_refused(too_deep, identity, {}, "more than one level deep")) {
     return 1;
+  }
 
   const auto two_nested =
       make_archive({{"one.zip", bytes_string(inner), 0}, {"two.zip", bytes_string(deepest), 0}});
-  if (!expect_unique_refused(two_nested, identity, {}, "more than one nested ZIP"))
+  if (!expect_unique_refused(two_nested, identity, {}, "more than one nested ZIP")) {
     return 1;
+  }
 
   limits = {};
   limits.max_entries = 3;
-  if (!expect_unique_refused(outer, identity, limits, "combined entry-count limit"))
+  if (!expect_unique_refused(outer, identity, limits, "combined entry-count limit")) {
     return 1;
+  }
   limits = {};
   limits.max_archive_bytes = outer.size() + inner.size() - 1;
-  if (!expect_unique_refused(outer, identity, limits, "combined compressed byte limit"))
+  if (!expect_unique_refused(outer, identity, limits, "combined compressed byte limit")) {
     return 1;
+  }
   limits = {};
   limits.max_extracted_bytes = std::string_view{"outer"}.size() + inner.size();
-  if (!expect_unique_refused(outer, identity, limits, "total expanded byte limit"))
+  if (!expect_unique_refused(outer, identity, limits, "total expanded byte limit")) {
     return 1;
+  }
 
   const std::filesystem::path preserved_destination = "zip-test-preserved-output";
   std::filesystem::create_directory(preserved_destination);
@@ -279,8 +311,9 @@ int main() {
           [](std::string_view, std::span<const std::uint8_t>) -> bool {
             throw std::runtime_error("identity reader failed");
           },
-          {}, "identity reader failed"))
+          {}, "identity reader failed")) {
     return 1;
+  }
 
   std::filesystem::remove(archive);
   std::cout << "zip: direct and one-level nested content identity selected from path/bytes; "

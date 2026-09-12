@@ -58,14 +58,18 @@ std::vector<std::string> g_early_lines;
 
 struct InstallEarlySink {
   InstallEarlySink() {
-    lucent::set_sink(
-        [](lucent::Level, std::string_view line) { g_early_lines.emplace_back(line); });
+    lucent::set_sink([](lucent::Level, std::string_view line) {
+      g_early_lines.emplace_back(line);
+    });
   }
 };
+// Dynamic initialization is the pre-main behavior this executable exercises.
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization)
 const InstallEarlySink g_early_sink;
 
 // MYAPP_DEBUG=early comes from the ctest ENVIRONMENT property, i.e. it is set before the process
 // starts. MYAPP_DEBUG is what this target compiled LUCENT_CHANNEL_ENV to.
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization)
 const int g_early_done = [] {
   lucent::debug("early", "pre-main line on an enabled channel");
   lucent::debug("quiet", "pre-main line on a channel that is NOT enabled");
@@ -78,16 +82,19 @@ void test_the_first_log_call_in_the_process_honours_the_compiled_in_env_name() {
   // line is present) and that reading it did not simply turn everything on (the "quiet" line is
   // absent).
   std::cerr << "note: captured " << g_early_lines.size() << " pre-main line(s):\n";
-  for (const std::string &l : g_early_lines)
+  for (const std::string &l : g_early_lines) {
     std::cerr << "  | " << l << "\n";
-  if (g_early_lines.empty())
+  }
+  if (g_early_lines.empty()) {
     std::cerr << "note: NOTHING was captured — either the compiled-in channel variable was ignored,"
                  " or MYAPP_DEBUG was not set in this process's environment (it is: '"
               << (std::getenv("MYAPP_DEBUG") ? std::getenv("MYAPP_DEBUG") : "<unset>") << "')\n";
+  }
 
   CHECK_EQ(g_early_lines.size(), std::size_t(1));
-  if (g_early_lines.size() == 1)
+  if (g_early_lines.size() == 1) {
     CHECK(g_early_lines[0].ends_with("Z] [early] pre-main line on an enabled channel"));
+  }
   CHECK_EQ(g_early_done, 0);
 }
 
@@ -105,15 +112,18 @@ void test_the_environment_is_re_read_when_the_name_changes_late() {
   // The runtime setter is not the defusal — the compiled-in name is — but it must not be a no-op
   // once the set has already been loaded, or it becomes the same silent failure one level down.
   std::vector<std::string> lines;
-  lucent::set_sink([&lines](lucent::Level, std::string_view line) { lines.emplace_back(line); });
+  lucent::set_sink([&lines](lucent::Level, std::string_view line) {
+    lines.emplace_back(line);
+  });
 
   CHECK(lucent::test::set_environment("SOME_OTHER_DEBUG", "late"));
   lucent::config::set_channel_env("SOME_OTHER_DEBUG");
   lucent::debug("late", "picked up after the set was already loaded");
   lucent::debug("early", "the old variable no longer names this");
   CHECK_EQ(lines.size(), std::size_t(1));
-  if (lines.size() == 1)
+  if (lines.size() == 1) {
     CHECK(lines[0].ends_with("Z] [late] picked up after the set was already loaded"));
+  }
 
   lucent::config::set_channel_env("MYAPP_DEBUG");
   lucent::set_sink(nullptr);
@@ -121,15 +131,18 @@ void test_the_environment_is_re_read_when_the_name_changes_late() {
 
 void test_an_explicit_enable_channels_outranks_a_later_re_read() {
   std::vector<std::string> lines;
-  lucent::set_sink([&lines](lucent::Level, std::string_view line) { lines.emplace_back(line); });
+  lucent::set_sink([&lines](lucent::Level, std::string_view line) {
+    lines.emplace_back(line);
+  });
 
   lucent::enable_channels("chosen-in-code");
   lucent::config::set_channel_env("MYAPP_DEBUG"); // would re-read "early" if it won
   lucent::debug("chosen-in-code", "still on");
   lucent::debug("early", "must not come back");
   CHECK_EQ(lines.size(), std::size_t(1));
-  if (lines.size() == 1)
+  if (lines.size() == 1) {
     CHECK(lines[0].ends_with("Z] [chosen-in-code] still on"));
+  }
 
   lucent::enable_channels("");
   lucent::set_sink(nullptr);
@@ -143,9 +156,10 @@ int main() {
   test_the_environment_is_re_read_when_the_name_changes_late();
   test_an_explicit_enable_channels_outranks_a_later_re_read();
 
-  if (g_failures == 0)
+  if (g_failures == 0) {
     std::cout << "all tests passed\n";
-  else
+  } else {
     std::cerr << g_failures << " failure(s)\n";
+  }
   return g_failures == 0 ? 0 : 1;
 }

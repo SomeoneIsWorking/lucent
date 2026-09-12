@@ -23,28 +23,33 @@ std::vector<Event> Router::route(std::span<const Contact> contacts) {
   std::vector<Event> events;
   events.reserve(contacts.size());
   for (const Contact &contact : contacts) {
-    auto capture = std::find_if(captures_.begin(), captures_.end(),
-                                [&](const auto &entry) { return entry.first == contact.id; });
+    auto capture = std::find_if(captures_.begin(), captures_.end(), [&](const auto &entry) {
+      return entry.first == contact.id;
+    });
     if (contact.phase == Phase::began) {
-      if (capture != captures_.end())
+      if (capture != captures_.end()) {
         captures_.erase(capture);
+      }
       const auto zone = std::find_if(zones_.begin(), zones_.end(), [&](const Zone &candidate) {
         return contains(candidate, contact.position);
       });
-      if (zone == zones_.end())
+      if (zone == zones_.end()) {
         continue;
+      }
       captures_.emplace_back(contact.id, Capture{zone->id, contact.position, contact.position});
       events.push_back(
           Event{contact.id, zone->id, contact.position, contact.position, Phase::began});
       continue;
     }
-    if (capture == captures_.end())
+    if (capture == captures_.end()) {
       continue;
+    }
     events.push_back(Event{contact.id, capture->second.zone_id, contact.position,
                            capture->second.origin, contact.phase});
     capture->second.position = contact.position;
-    if (contact.phase == Phase::ended || contact.phase == Phase::canceled)
+    if (contact.phase == Phase::ended || contact.phase == Phase::canceled) {
       captures_.erase(capture);
+    }
   }
   return events;
 }
@@ -52,9 +57,10 @@ std::vector<Event> Router::route(std::span<const Contact> contacts) {
 std::vector<Event> Router::cancel() {
   std::vector<Event> events;
   events.reserve(captures_.size());
-  for (const auto &entry : captures_)
+  for (const auto &entry : captures_) {
     events.push_back(Event{entry.first, entry.second.zone_id, entry.second.position,
                            entry.second.origin, Phase::canceled});
+  }
   captures_.clear();
   return events;
 }

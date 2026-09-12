@@ -84,8 +84,9 @@ struct FixtureEntry {
 inline std::vector<unsigned char> make_archive(std::initializer_list<FixtureEntry> entries) {
   std::vector<unsigned char> archive;
   std::vector<unsigned char> central;
-  for (const auto &fixture : entries)
+  for (const auto &fixture : entries) {
     entry(archive, central, fixture.name, fixture.content, fixture.method);
+  }
   const unsigned central_offset = archive.size();
   archive.insert(archive.end(), central.begin(), central.end());
   u32(archive, 0x06054b50);

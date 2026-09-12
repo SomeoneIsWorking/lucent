@@ -34,8 +34,9 @@ struct FileStore::State {
           return ::write(descriptor, bytes, count);
         });
     g_task_return_pointer(
-        task, new Result(std::move(result)),
-        +[](gpointer data) { delete static_cast<Result *>(data); });
+        task, new Result(std::move(result)), +[](gpointer data) {
+          delete static_cast<Result *>(data);
+        });
   }
 
   static void staged(GObject *, GAsyncResult *completion, gpointer) {
@@ -98,7 +99,9 @@ void FileStore::start(std::string bytes, std::string suffix) {
   state_->pending = true;
   GTask *task = g_task_new(nullptr, nullptr, State::staged, nullptr);
   g_task_set_task_data(
-      task, request.release(), +[](gpointer data) { delete static_cast<State::Request *>(data); });
+      task, request.release(), +[](gpointer data) {
+        delete static_cast<State::Request *>(data);
+      });
   g_task_run_in_thread(task, State::stage_worker);
   g_object_unref(task);
 }

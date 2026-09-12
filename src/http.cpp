@@ -8,8 +8,8 @@
 #include <charconv>
 #include <condition_variable>
 #include <cstring>
-#include <filesystem>
 #include <fstream>
+#include <limits>
 #include <mutex>
 #include <thread>
 #include <unordered_set>
@@ -37,10 +37,12 @@ bool send_all(detail::Socket socket, const void *bytes, std::size_t size) {
   const char *cursor = static_cast<const char *>(bytes);
   while (size != 0) {
     const std::ptrdiff_t sent = detail::send_bytes(socket, cursor, size);
-    if (sent < 0 && detail::socket_error_interrupted(detail::last_socket_error()))
+    if (sent < 0 && detail::socket_error_interrupted(detail::last_socket_error())) {
       continue;
-    if (sent <= 0)
+    }
+    if (sent <= 0) {
       return false;
+    }
     cursor += sent;
     size -= static_cast<std::size_t>(sent);
   }
@@ -48,29 +50,45 @@ bool send_all(detail::Socket socket, const void *bytes, std::size_t size) {
 }
 
 bool send_response(detail::Socket socket, const Response &response) {
-  std::error_code error;
-  const std::uintmax_t file_size =
-      response.file_path.empty() ? 0 : std::filesystem::file_size(response.file_path, error);
-  if (!response.file_path.empty() && error)
-    return false;
-  const std::size_t content_length =
-      response.file_path.empty() ? response.body.size() : static_cast<std::size_t>(file_size);
+  std::ifstream file;
+  std::size_t content_length = response.body.size();
+  if (!response.file_path.empty()) {
+    file.open(response.file_path, std::ios::binary | std::ios::ate);
+    if (!file) {
+      return false;
+    }
+    std::streamoff byte_count = file.tellg();
+    if (byte_count < 0 ||
+        static_cast<std::uintmax_t>(byte_count) > std::numeric_limits<std::size_t>::max()) {
+      return false;
+    }
+    content_length = static_cast<std::size_t>(byte_count);
+    file.seekg(0, std::ios::beg);
+    if (!file) {
+      return false;
+    }
+  }
   std::string header = "HTTP/1.1 " + std::to_string(response.status) + " " + response.reason +
                        "\r\nContent-Type: " + response.content_type +
                        "\r\nContent-Length: " + std::to_string(content_length) +
                        "\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n";
-  if (!send_all(socket, header.data(), header.size()))
+  if (!send_all(socket, header.data(), header.size())) {
     return false;
-  if (response.file_path.empty())
+  }
+  if (response.file_path.empty()) {
     return send_all(socket, response.body.data(), response.body.size());
+  }
 
-  std::ifstream file(response.file_path, std::ios::binary);
-  if (!file)
-    return false;
   char block[64 * 1024];
-  while (file.read(block, sizeof(block)) || file.gcount() != 0) {
-    if (!send_all(socket, block, static_cast<std::size_t>(file.gcount())))
+  std::size_t remaining = content_length;
+  while (remaining != 0) {
+    std::size_t requested = std::min(remaining, sizeof(block));
+    file.read(block, static_cast<std::streamsize>(requested));
+    std::streamsize received = file.gcount();
+    if (received <= 0 || !send_all(socket, block, static_cast<std::size_t>(received))) {
       return false;
+    }
+    remaining -= static_cast<std::size_t>(received);
   }
   return !file.bad();
 }
@@ -80,17 +98,21 @@ Response error_response(int status, std::string reason, std::string message) {
 }
 
 bool ascii_iequals(std::string_view left, std::string_view right) {
-  if (left.size() != right.size())
+  if (left.size() != right.size()) {
     return false;
+  }
   for (std::size_t i = 0; i < left.size(); ++i) {
     char a = left[i];
     char b = right[i];
-    if (a >= 'A' && a <= 'Z')
+    if (a >= 'A' && a <= 'Z') {
       a = static_cast<char>(a - 'A' + 'a');
-    if (b >= 'A' && b <= 'Z')
+    }
+    if (b >= 'A' && b <= 'Z') {
       b = static_cast<char>(b - 'A' + 'a');
-    if (a != b)
+    }
+    if (a != b) {
       return false;
+    }
   }
   return true;
 }
@@ -131,8 +153,9 @@ bool read_request(detail::Socket socket, const ServerOptions &options, Request &
   wire.reserve(std::min<std::size_t>(options.max_header_bytes, 2048));
   std::size_t header_end = std::string::npos;
   while (header_end == std::string::npos) {
-    if (!read_more(socket, wire, result))
+    if (!read_more(socket, wire, result)) {
       return false;
+    }
     header_end = wire.find("\r\n\r\n");
     if (header_end == std::string::npos && wire.size() > options.max_header_bytes) {
       result.status = 431;
@@ -213,20 +236,24 @@ bool read_request(detail::Socket socket, const ServerOptions &options, Request &
 
   const std::size_t body_start = header_end + 4;
   while (wire.size() - body_start < content_length) {
-    if (!read_more(socket, wire, result))
+    if (!read_more(socket, wire, result)) {
       return false;
+    }
   }
   request.body.assign(wire.data() + body_start, content_length);
   return true;
 }
 
 int hex_digit(char value) {
-  if (value >= '0' && value <= '9')
+  if (value >= '0' && value <= '9') {
     return value - '0';
-  if (value >= 'a' && value <= 'f')
+  }
+  if (value >= 'a' && value <= 'f') {
     return value - 'a' + 10;
-  if (value >= 'A' && value <= 'F')
+  }
+  if (value >= 'A' && value <= 'F') {
     return value - 'A' + 10;
+  }
   return -1;
 }
 
@@ -237,12 +264,14 @@ bool decode_form_component(std::string_view encoded, std::string &decoded) {
     if (encoded[index] == '+') {
       decoded.push_back(' ');
     } else if (encoded[index] == '%') {
-      if (index + 2 >= encoded.size())
+      if (index + 2 >= encoded.size()) {
         return false;
+      }
       const int high = hex_digit(encoded[index + 1]);
       const int low = hex_digit(encoded[index + 2]);
-      if (high < 0 || low < 0)
+      if (high < 0 || low < 0) {
         return false;
+      }
       decoded.push_back(static_cast<char>((high << 4) | low));
       index += 2;
     } else {
@@ -256,7 +285,8 @@ bool decode_form_component(std::string_view encoded, std::string &decoded) {
 
 struct detail::ServerState {
   ServerState(ServerOptions server_options, Handler request_handler)
-      : options(server_options), handler(std::move(request_handler)) {}
+      : options(server_options), handler(std::move(request_handler)) {
+  }
 
   ServerOptions options;
   Handler handler;
@@ -291,8 +321,9 @@ void serve_client(const std::shared_ptr<detail::ServerState> &state, detail::Soc
 
 #if LUCENT_EXCEPTIONS
   try {
-    if (!send_response(client, state->handler(request)))
+    if (!send_response(client, state->handler(request))) {
       lucent::log(Level::Warn, "http", "response could not be sent");
+    }
   } catch (const std::exception &exception) {
     lucent::log(Level::Error, "http", std::string{"request handler threw: "} + exception.what());
     send_response(client, error_response(500, "Internal Server Error", "request handler failed"));
@@ -309,15 +340,18 @@ void serve_client(const std::shared_ptr<detail::ServerState> &state, detail::Soc
 void accept_connections(const std::shared_ptr<detail::ServerState> &state) {
   while (state->running.load(std::memory_order_acquire)) {
     const detail::Socket listener = state->listener.load(std::memory_order_acquire);
-    if (detail::is_invalid_socket(listener))
+    if (detail::is_invalid_socket(listener)) {
       break;
+    }
     const detail::Socket client = detail::accept_socket(listener);
     const int accept_error = detail::last_socket_error();
-    if (detail::is_invalid_socket(client) && detail::socket_error_interrupted(accept_error))
+    if (detail::is_invalid_socket(client) && detail::socket_error_interrupted(accept_error)) {
       continue;
+    }
     if (detail::is_invalid_socket(client)) {
-      if (!state->running.load(std::memory_order_acquire))
+      if (!state->running.load(std::memory_order_acquire)) {
         break;
+      }
       lucent::log(Level::Warn, "http",
                   "accept failed (socket error " + std::to_string(accept_error) + ")");
       continue;
@@ -398,8 +432,9 @@ bool parse_form_urlencoded(std::string_view encoded, std::vector<FormField> &fie
     const std::string_view item = encoded.substr(0, separator);
     encoded =
         separator == std::string_view::npos ? std::string_view{} : encoded.substr(separator + 1);
-    if (item.empty())
+    if (item.empty()) {
       continue;
+    }
     const std::size_t equals = item.find('=');
     FormField field;
     if (!decode_form_component(item.substr(0, equals), field.name) ||
@@ -423,8 +458,9 @@ Server::~Server() {
 }
 
 bool Server::start() {
-  if (state_->running.load(std::memory_order_acquire))
+  if (state_->running.load(std::memory_order_acquire)) {
     return true;
+  }
   if (!state_->handler || state_->options.max_header_bytes < 16 ||
       state_->options.max_connections == 0 || state_->options.backlog <= 0) {
     lucent::log(Level::Error, "http", "refusing invalid server options");
@@ -496,21 +532,26 @@ bool Server::start() {
 }
 
 void Server::stop() {
-  if (!state_->running.exchange(false, std::memory_order_acq_rel))
+  if (!state_->running.exchange(false, std::memory_order_acq_rel)) {
     return;
+  }
   const detail::Socket listener =
       state_->listener.exchange(detail::kInvalidSocket, std::memory_order_acq_rel);
   if (!detail::is_invalid_socket(listener)) {
     detail::shutdown_socket(listener);
     detail::close_socket(listener);
   }
-  if (state_->accept_thread.joinable())
+  if (state_->accept_thread.joinable()) {
     state_->accept_thread.join();
+  }
 
   std::unique_lock lock(state_->clients_mutex);
-  for (const detail::Socket client : state_->clients)
+  for (const detail::Socket client : state_->clients) {
     detail::shutdown_socket(client);
-  state_->clients_stopped.wait(lock, [this] { return state_->clients.empty(); });
+  }
+  state_->clients_stopped.wait(lock, [this] {
+    return state_->clients.empty();
+  });
   state_->bound_port.store(0, std::memory_order_release);
 }
 

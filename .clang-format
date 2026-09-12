@@ -4,5 +4,7 @@ ColumnLimit: 100
 IndentWidth: 2
 NamespaceIndentation: None
 SortIncludes: Never
-AllowShortFunctionsOnASingleLine: InlineOnly
+AllowShortFunctionsOnASingleLine: None
 AllowShortIfStatementsOnASingleLine: Never
+AllowShortLambdasOnASingleLine: None
+InsertBraces: true

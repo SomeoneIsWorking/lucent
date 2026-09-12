@@ -13,6 +13,10 @@
 #include <string>
 #include <unordered_map>
 
+#ifdef _WIN32
+#include <windows.h>
+#endif
+
 namespace lucent::cvar {
 
 // ── value parsing / formatting ─────────────────────────────────────────────────
@@ -20,11 +24,15 @@ namespace detail {
 namespace {
 
 std::string_view trim(std::string_view v) {
-  const auto is_space = [](unsigned char c) { return std::isspace(c) != 0; };
-  while (!v.empty() && is_space(static_cast<unsigned char>(v.front())))
+  const auto is_space = [](unsigned char c) {
+    return std::isspace(c) != 0;
+  };
+  while (!v.empty() && is_space(static_cast<unsigned char>(v.front()))) {
     v.remove_prefix(1);
-  while (!v.empty() && is_space(static_cast<unsigned char>(v.back())))
+  }
+  while (!v.empty() && is_space(static_cast<unsigned char>(v.back()))) {
     v.remove_suffix(1);
+  }
   return v;
 }
 
@@ -45,24 +53,28 @@ bool parse(std::string_view text, bool &out) {
 
 bool parse(std::string_view text, long &out) {
   const std::string t(trim(text));
-  if (t.empty())
+  if (t.empty()) {
     return false;
+  }
   char *end = nullptr;
   const long v = std::strtol(t.c_str(), &end, 0);
-  if (end == nullptr || *end != '\0')
+  if (end == nullptr || *end != '\0') {
     return false;
+  }
   out = v;
   return true;
 }
 
 bool parse(std::string_view text, double &out) {
   const std::string t(trim(text));
-  if (t.empty())
+  if (t.empty()) {
     return false;
+  }
   char *end = nullptr;
   const double v = std::strtod(t.c_str(), &end);
-  if (end == nullptr || *end != '\0')
+  if (end == nullptr || *end != '\0') {
     return false;
+  }
   out = v;
   return true;
 }
@@ -83,10 +95,12 @@ std::string format(double value) {
   // Trim a trailing run of zeros (and a bare '.') from the fixed notation
   // std::to_string produces, so a round-trip does not grow "1" into "1.000000".
   if (s.find('.') != std::string::npos) {
-    while (s.size() > 1 && s.back() == '0')
+    while (s.size() > 1 && s.back() == '0') {
       s.pop_back();
-    if (s.back() == '.')
+    }
+    if (s.back() == '.') {
       s.pop_back();
+    }
   }
   return s;
 }
@@ -131,10 +145,11 @@ std::string env_name_locked(const State &st, std::string_view name) {
   out.reserve(st.prefix.size() + name.size());
   out.append(st.prefix);
   for (char c : name) {
-    if (c == '.' || c == '-')
+    if (c == '.' || c == '-') {
       out.push_back('_');
-    else
+    } else {
       out.push_back(static_cast<char>(std::toupper(static_cast<unsigned char>(c))));
+    }
   }
   return out;
 }
@@ -151,8 +166,9 @@ void apply_pending_locked(State &st, VarBase &var) {
   st.preserved_unknowns.erase(name);
 
   const std::string env = env_name_locked(st, name);
-  if (lucent::config::present(env))
+  if (lucent::config::present(env)) {
     var.apply(lucent::config::text(env), Layer::Override);
+  }
 
   if (auto it = st.stashed_override.find(name); it != st.stashed_override.end()) {
     var.apply(it->second, Layer::Override);
@@ -196,8 +212,9 @@ void unregister_var(VarBase &var) {
   State &st = state();
   std::lock_guard lock(st.mutex);
   // Keep its value so save_file() still writes it and a later register restores it.
-  if (var.layer() != Layer::Default)
+  if (var.layer() != Layer::Default) {
     st.stashed_value[var.name()] = var.dump_persistable();
+  }
   st.registered.erase(var.name());
   var.registered_ = false;
 }
@@ -212,21 +229,24 @@ VarBase *find(std::string_view name) {
 void enumerate(const std::function<void(VarBase &)> &fn) {
   State &st = state();
   std::lock_guard lock(st.mutex);
-  for (auto &[name, var] : st.registered)
+  for (auto &[name, var] : st.registered) {
     fn(*var);
+  }
 }
 
 void load_file(const char *path) {
   State &st = state();
   std::lock_guard lock(st.mutex);
   std::ifstream in(path);
-  if (!in)
+  if (!in) {
     return; // a missing runtime config is normal; defaults stand.
+  }
   std::string line;
   while (std::getline(in, line)) {
     std::string_view view = detail::trim(line);
-    if (view.empty() || view.front() == '#')
+    if (view.empty() || view.front() == '#') {
       continue;
+    }
     const auto eq = view.find('=');
     if (eq == std::string_view::npos) {
       std::fprintf(stderr, "lucent::cvar: %s: ignoring line without '=': %.*s\n", path,
@@ -235,11 +255,12 @@ void load_file(const char *path) {
     }
     const std::string key(detail::trim(view.substr(0, eq)));
     const std::string value(detail::trim(view.substr(eq + 1)));
-    if (key.empty())
+    if (key.empty()) {
       continue;
-    if (const auto it = st.registered.find(key); it != st.registered.end())
+    }
+    if (const auto it = st.registered.find(key); it != st.registered.end()) {
       it->second->apply(value, Layer::Value);
-    else {
+    } else {
       st.stashed_value[key] = value;
       st.preserved_unknowns[key] = value;
     }
@@ -252,31 +273,43 @@ bool save_file(const char *path) {
   const std::string tmp = std::string(path) + ".tmp";
   {
     std::ofstream out(tmp, std::ios::trunc);
-    if (!out)
+    if (!out) {
       return false;
+    }
     out << "# lucent::cvar runtime configuration. Layers: default < this file < "
            "environment < --set.\n";
     std::map<std::string, std::string> rows;
-    for (const auto &[name, var] : st.registered)
+    for (const auto &[name, var] : st.registered) {
       rows[name] = var->dump_persistable();
-    for (const auto &[name, value] : st.preserved_unknowns)
+    }
+    for (const auto &[name, value] : st.preserved_unknowns) {
       rows.emplace(name, value); // registered wins if somehow both
-    for (const auto &[name, value] : rows)
+    }
+    for (const auto &[name, value] : rows) {
       out << name << " = " << value << '\n';
-    if (!out)
+    }
+    if (!out) {
       return false;
+    }
   }
+#ifdef _WIN32
+  return MoveFileExA(tmp.c_str(), path, MOVEFILE_REPLACE_EXISTING) != 0;
+#else
   return std::rename(tmp.c_str(), path) == 0;
+#endif
 }
 
+// The stable API accepts two string views for a name/value override token.
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 void set_arg(std::string_view name, std::string_view value) {
   State &st = state();
   std::lock_guard lock(st.mutex);
   const std::string key(name);
-  if (const auto it = st.registered.find(key); it != st.registered.end())
+  if (const auto it = st.registered.find(key); it != st.registered.end()) {
     it->second->apply(value, Layer::Override);
-  else
+  } else {
     st.stashed_override[key] = std::string(value);
+  }
 }
 
 void reset_for_test() {

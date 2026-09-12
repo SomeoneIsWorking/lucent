@@ -49,6 +49,8 @@ struct FormField {
 // LocalNetwork is deliberately explicit: it listens on every IPv4 interface,
 // so the consumer must authenticate every route and provide a visible way to
 // stop sharing.
+// Preserve the public ServerOptions layout for existing binary consumers.
+// NOLINTNEXTLINE(performance-enum-size)
 enum class ListenScope { Loopback, LocalNetwork };
 
 // Decodes application/x-www-form-urlencoded data. Malformed percent escapes are refused and named
@@ -59,8 +61,8 @@ bool parse_form_urlencoded(std::string_view encoded, std::vector<FormField> &fie
 struct ServerOptions {
   std::uint16_t port = 0;
   ListenScope listen_scope = ListenScope::Loopback;
-  std::size_t max_header_bytes = 16 * 1024;
-  std::size_t max_body_bytes = 1024 * 1024;
+  std::size_t max_header_bytes = std::size_t{16} * 1024;
+  std::size_t max_body_bytes = std::size_t{1024} * 1024;
   std::size_t max_connections = 8;
   int backlog = 8;
 };

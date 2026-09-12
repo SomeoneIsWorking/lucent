@@ -12,6 +12,8 @@ struct Point {
   float y = 0.0F;
 };
 
+// Preserve the public Contact layout for existing binary consumers.
+// NOLINTNEXTLINE(performance-enum-size)
 enum class Phase { began, moved, ended, canceled };
 
 struct Contact {

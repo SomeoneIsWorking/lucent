@@ -26,7 +26,10 @@ int g_failures = 0;
 // before anything has loaded the environment or touched the channel set. Both of these run before
 // main(), so whatever caching scheme Channel uses has to survive being primed from a not-yet-loaded
 // world and still respond to every later enable_channels().
+// These must run before main to verify that a channel survives pre-main use.
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization)
 const lucent::Channel g_early_channel{"early"};
+// NOLINTNEXTLINE(bugprone-throwing-static-initialization)
 const bool g_early_answer_at_static_init = static_cast<bool>(g_early_channel);
 
 #define CHECK(cond)                                                                                \
@@ -57,15 +60,20 @@ void set_env(const char *name, const char *value) {
 struct Capture {
   std::vector<std::string> lines;
   Capture() {
-    lucent::set_sink([this](lucent::Level, std::string_view line) { lines.emplace_back(line); });
+    lucent::set_sink([this](lucent::Level, std::string_view line) {
+      lines.emplace_back(line);
+    });
   }
-  ~Capture() { lucent::set_sink(nullptr); }
+  ~Capture() {
+    lucent::set_sink(nullptr);
+  }
 };
 
 std::string without_timestamp(std::string_view line) {
   std::size_t leading_newlines = 0;
-  while (leading_newlines < line.size() && line[leading_newlines] == '\n')
+  while (leading_newlines < line.size() && line[leading_newlines] == '\n') {
     ++leading_newlines;
+  }
 
   const std::string_view stamped = line.substr(leading_newlines);
   constexpr std::size_t kTimestampLength = 27;
@@ -75,11 +83,13 @@ std::string without_timestamp(std::string_view line) {
                      stamped[25] == ']' && stamped[26] == ' ';
   bool digits = shape;
   for (std::size_t i :
-       {1u, 2u, 3u, 4u, 6u, 7u, 9u, 10u, 12u, 13u, 15u, 16u, 18u, 19u, 21u, 22u, 23u})
+       {1u, 2u, 3u, 4u, 6u, 7u, 9u, 10u, 12u, 13u, 15u, 16u, 18u, 19u, 21u, 22u, 23u}) {
     digits = digits && std::isdigit(static_cast<unsigned char>(stamped[i]));
+  }
   CHECK(shape && digits);
-  if (!shape || !digits)
+  if (!shape || !digits) {
     return std::string(line);
+  }
   return std::string(leading_newlines, '\n') + std::string(stamped.substr(kTimestampLength));
 }
 
@@ -189,8 +199,9 @@ void test_line_builder() {
   lucent::Line row;
   CHECK(row.empty());
   row.add("  {:08x}:", 0x800a6490u);
-  for (int b : {0x00, 0x10, 0x20})
+  for (int b : {0x00, 0x10, 0x20}) {
     row.add(" {:02x}", b);
+  }
   CHECK(!row.empty());
   row.flush(lucent::Level::Info, "mem");
   CHECK(row.empty()); // flush clears
@@ -206,8 +217,9 @@ void test_line_builder() {
 void test_line_truncates_safely() {
   Capture cap;
   lucent::Line row;
-  for (int i = 0; i < 5000; ++i)
+  for (int i = 0; i < 5000; ++i) {
     row.add("{}", 'x');
+  }
   row.flush(lucent::Level::Info, "big");
   CHECK_EQ(cap.lines.size(), std::size_t(1));
   const std::string emitted = without_timestamp(cap.lines[0]);
@@ -342,10 +354,11 @@ void test_channel_tracks_changes_across_threads() {
   for (int t = 0; t < 4; ++t) {
     readers.emplace_back([&] {
       while (!stop.load(std::memory_order_relaxed)) {
-        if (ch)
+        if (ch) {
           saw_true.fetch_add(1, std::memory_order_relaxed);
-        else
+        } else {
           saw_false.fetch_add(1, std::memory_order_relaxed);
+        }
       }
     });
   }
@@ -354,8 +367,9 @@ void test_channel_tracks_changes_across_threads() {
     std::this_thread::sleep_for(std::chrono::microseconds(200));
   }
   stop.store(true, std::memory_order_relaxed);
-  for (auto &t : readers)
+  for (auto &t : readers) {
     t.join();
+  }
 
   // Both answers must have been observed: all-false would mean the handle never noticed an enable,
   // all-true that it never noticed a disable. Either is the stale-cache bug this must not have.
@@ -391,11 +405,13 @@ void test_channel_gate_is_measurably_cheaper() {
   g_bench_sink = acc;
 
   const auto t0 = clock::now();
-  for (int i = 0; i < kIters; ++i)
+  for (int i = 0; i < kIters; ++i) {
     acc += lucent::channel_on("otattr");
+  }
   const auto t1 = clock::now();
-  for (int i = 0; i < kIters; ++i)
+  for (int i = 0; i < kIters; ++i) {
     acc += bool(ch);
+  }
   const auto t2 = clock::now();
   g_bench_sink = acc;
 
@@ -404,11 +420,13 @@ void test_channel_gate_is_measurably_cheaper() {
 
   // The same shape again, but through the actual call site a consumer writes.
   const auto d0 = clock::now();
-  for (int i = 0; i < kIters; ++i)
+  for (int i = 0; i < kIters; ++i) {
     lucent::debug("otattr", "store {:08X}", unsigned(i));
+  }
   const auto d1 = clock::now();
-  for (int i = 0; i < kIters; ++i)
+  for (int i = 0; i < kIters; ++i) {
     lucent::debug(ch, "store {:08X}", unsigned(i));
+  }
   const auto d2 = clock::now();
   const double dsv_ns = std::chrono::duration<double, std::nano>(d1 - d0).count() / kIters;
   const double dch_ns = std::chrono::duration<double, std::nano>(d2 - d1).count() / kIters;
@@ -439,13 +457,19 @@ void test_string_keyed_gate_does_not_wait_for_the_logger_mutex() {
     std::unique_lock lock(mutex);
     sink_entered = true;
     changed.notify_all();
-    changed.wait(lock, [&] { return release_sink; });
+    changed.wait(lock, [&] {
+      return release_sink;
+    });
   });
 
-  std::thread writer([] { lucent::info("hold", "logger mutex held by the sink"); });
+  std::thread writer([] {
+    lucent::info("hold", "logger mutex held by the sink");
+  });
   {
     std::unique_lock lock(mutex);
-    changed.wait(lock, [&] { return sink_entered; });
+    changed.wait(lock, [&] {
+      return sink_entered;
+    });
   }
 
   std::promise<void> gate_started;
@@ -567,9 +591,10 @@ int main() {
   test_format_builds_a_string_without_emitting();
   test_c_logging_api();
 
-  if (g_failures == 0)
+  if (g_failures == 0) {
     std::cout << "all tests passed\n";
-  else
+  } else {
     std::cerr << g_failures << " failure(s)\n";
+  }
   return g_failures == 0 ? 0 : 1;
 }

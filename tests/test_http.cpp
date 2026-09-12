@@ -6,10 +6,10 @@
 #include <cstring>
 #include <filesystem>
 #include <fstream>
-#include <future>
 #include <iostream>
 #include <limits>
 #include <optional>
+#include <semaphore>
 #include <string>
 #include <thread>
 #include <vector>
@@ -170,8 +170,9 @@ std::optional<in_addr> local_network_address() {
   std::optional<in_addr> result;
   for (const ifaddrs *interface = interfaces; interface != nullptr;
        interface = interface->ifa_next) {
-    if (interface->ifa_addr == nullptr || interface->ifa_addr->sa_family != AF_INET)
+    if (interface->ifa_addr == nullptr || interface->ifa_addr->sa_family != AF_INET) {
       continue;
+    }
     const auto *address = reinterpret_cast<const sockaddr_in *>(interface->ifa_addr);
     if (address->sin_addr.s_addr != htonl(INADDR_LOOPBACK)) {
       result = address->sin_addr;
@@ -204,10 +205,8 @@ void test_form_decoder() {
 
 void test_server_transport_and_concurrency() {
   std::atomic<int> handler_calls{0};
-  std::promise<void> slow_entered;
-  std::future<void> slow_entered_future = slow_entered.get_future();
-  std::promise<void> release_slow;
-  std::shared_future<void> release_slow_future = release_slow.get_future().share();
+  std::binary_semaphore slow_entered{0};
+  std::binary_semaphore release_slow{0};
 
   lucent::http::ServerOptions options;
   options.port = 0;
@@ -216,8 +215,8 @@ void test_server_transport_and_concurrency() {
   lucent::http::Server server(options, [&](const lucent::http::Request &incoming) {
     handler_calls.fetch_add(1);
     if (incoming.path() == "/slow") {
-      slow_entered.set_value();
-      release_slow_future.wait();
+      slow_entered.release();
+      release_slow.acquire();
       return lucent::http::Response::text(200, "OK", "slow done");
     }
     if (incoming.path() == "/echo") {
@@ -255,12 +254,12 @@ void test_server_transport_and_concurrency() {
   std::thread slow_client([&] {
     slow_response = request(server.port(), "GET /slow HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
   });
-  slow_entered_future.wait();
+  slow_entered.acquire();
   const std::string fast_response =
       request(server.port(), "GET /echo?fast=1 HTTP/1.1\r\nHost: 127.0.0.1\r\n\r\n");
   CHECK(fast_response.starts_with("HTTP/1.1 200 OK\r\n"));
   CHECK(body(fast_response) == "GET fast=1 ");
-  release_slow.set_value();
+  release_slow.release();
   slow_client.join();
   CHECK(body(slow_response) == "slow done");
 
@@ -301,9 +300,10 @@ void test_local_network_scope_is_explicit() {
 
 void test_file_response_streams_exact_bytes() {
   const auto path = std::filesystem::current_path() / "http-file-response.bin";
-  std::string expected(128 * 1024, '\0');
-  for (std::size_t index = 0; index < expected.size(); ++index)
+  std::string expected(std::size_t{128} * 1024, '\0');
+  for (std::size_t index = 0; index < expected.size(); ++index) {
     expected[index] = static_cast<char>(index % 251);
+  }
   {
     std::ofstream file(path, std::ios::binary);
     file.write(expected.data(), static_cast<std::streamsize>(expected.size()));

@@ -69,8 +69,9 @@ std::string full_name(std::string_view name) {
 const std::string &cached_full(std::string key) {
   State &st = state();
   auto it = st.values.find(key);
-  if (it != st.values.end())
+  if (it != st.values.end()) {
     return it->second;
+  }
 #ifdef _WIN32
   // The CRT removes a variable when _putenv_s receives an empty value. Read the
   // process environment directly so present-but-empty retains its meaning.
@@ -136,8 +137,9 @@ void set_prefix(std::string_view prefix) {
   {
     State &st = state();
     std::lock_guard lock(st.mutex);
-    if (st.prefix == prefix)
+    if (st.prefix == prefix) {
       return;
+    }
     st.prefix.assign(prefix);
     // Every cached answer was read under the OLD prefix and is now about the wrong variable.
     clear_caches_locked();
@@ -149,8 +151,9 @@ void set_channel_env(std::string_view env_name) {
   {
     State &st = state();
     std::lock_guard lock(st.mutex);
-    if (st.channel_env == env_name)
+    if (st.channel_env == env_name) {
       return;
+    }
     st.channel_env.assign(env_name);
   }
   detail::rearm_channels_from_env();
@@ -191,16 +194,18 @@ std::string_view prefix() {
 bool flag(std::string_view name) {
   std::lock_guard lock(state().mutex);
   const std::string &v = cached(name);
-  if (!state().present[full_name(name)])
+  if (!state().present[full_name(name)]) {
     return false;
+  }
   return !falsey(v);
 }
 
 long number(std::string_view name, long fallback) {
   std::lock_guard lock(state().mutex);
   const std::string &v = cached(name);
-  if (v.empty())
+  if (v.empty()) {
     return fallback;
+  }
   char *end = nullptr;
   const long parsed = std::strtol(v.c_str(), &end, 0); // base 0: decimal, 0x hex, 0 octal
   return (end && end != v.c_str()) ? parsed : fallback;
@@ -223,21 +228,25 @@ std::vector<std::string> active() {
   std::vector<std::string> out;
 #ifdef _WIN32
   char *environment = GetEnvironmentStringsA();
-  if (!environment)
+  if (!environment) {
     return out;
+  }
   for (const char *entry = environment; *entry != '\0'; entry += std::strlen(entry) + 1) {
     const std::string_view row(entry);
-    if (st.prefix.empty() || row.substr(0, st.prefix.size()) == st.prefix)
+    if (st.prefix.empty() || row.substr(0, st.prefix.size()) == st.prefix) {
       out.emplace_back(row);
+    }
   }
   FreeEnvironmentStringsA(environment);
 #else
-  if (!environ)
+  if (!environ) {
     return out;
+  }
   for (char **e = environ; *e; ++e) {
     std::string_view entry(*e);
-    if (st.prefix.empty() || entry.substr(0, st.prefix.size()) == st.prefix)
+    if (st.prefix.empty() || entry.substr(0, st.prefix.size()) == st.prefix) {
       out.emplace_back(entry);
+    }
   }
 #endif
   std::sort(out.begin(), out.end());
