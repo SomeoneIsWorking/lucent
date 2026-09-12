@@ -147,11 +147,18 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 
     add_executable(lucent_http_tests tests/test_http.cpp)
     target_link_libraries(lucent_http_tests PRIVATE lucent Threads::Threads)
+    if(WIN32)
+      target_link_libraries(lucent_http_tests PRIVATE iphlpapi)
+    endif()
     add_test(NAME lucent_http_tests COMMAND lucent_http_tests)
 
     add_executable(lucent_touch_tests tests/test_touch.cpp)
     target_link_libraries(lucent_touch_tests PRIVATE lucent)
     add_test(NAME lucent_touch_tests COMMAND lucent_touch_tests)
+
+    add_executable(lucent_text_tests tests/test_text.cpp)
+    target_link_libraries(lucent_text_tests PRIVATE lucent)
+    add_test(NAME lucent_text_tests COMMAND lucent_text_tests)
 
     add_executable(lucent_platform_tests tests/test_platform.cpp)
     target_link_libraries(lucent_platform_tests PRIVATE lucent)

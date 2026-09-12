@@ -19,6 +19,7 @@
 // CONTENT, and the diagnostic prints what was captured instead — never a bare "no output".
 #include "lucent/config.h"
 #include "lucent/log.h"
+#include "test_environment.h"
 
 #include <cstdlib>
 #include <iostream>
@@ -106,7 +107,7 @@ void test_the_environment_is_re_read_when_the_name_changes_late() {
   std::vector<std::string> lines;
   lucent::set_sink([&lines](lucent::Level, std::string_view line) { lines.emplace_back(line); });
 
-  setenv("SOME_OTHER_DEBUG", "late", 1);
+  CHECK(lucent::test::set_environment("SOME_OTHER_DEBUG", "late"));
   lucent::config::set_channel_env("SOME_OTHER_DEBUG");
   lucent::debug("late", "picked up after the set was already loaded");
   lucent::debug("early", "the old variable no longer names this");

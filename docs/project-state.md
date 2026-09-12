@@ -19,7 +19,6 @@ S007 is the current focus.
 | S003 | A bounded local HTTP server owns request parsing, framing, concurrency, scope, and lifecycle | verified | — | G001 |
 | S004 | Streaming content identity validates player-owned files without loading them completely into memory | verified | S002 | G001 |
 | S005 | Platform-neutral multi-touch routing owns contact capture, zones, and cancellation | verified | — | G001 |
-| S006 | Android helpers stage user-selected content through private storage and persisted grants | partial | S002, S004 | G001 |
 | S007 | HTTP responses stream bounded files without loading complete media into memory | verified | S003 | G001 |
 | S008 | Typed configuration reads named application settings from portable process inputs | verified | — | G001 |
 | S009 | Bounded ZIP discovery and extraction safely imports exactly one selected payload | verified | S002, S004 | G001 |
@@ -48,6 +47,9 @@ qualification work. ZIP extraction now uses the bounded file-reader and
 streaming entry owners described in S009; real browser import remains a
 consumer qualification rather than a result of the native ZIP tests.
 
+Gap: the SDK worker join during runtime destruction must leave the browser main thread unblocked;
+the complete consumer also needs real-title import and offline-relaunch qualification.
+
 ### S001 — Logging
 
 Evidence: production log and channel APIs have focused portability, sink, and formatting tests in the
@@ -72,13 +74,6 @@ whole-file allocation.
 
 Evidence: the title-neutral router and its tests cover zones, multi-touch capture, motion, release,
 and cancellation while leaving platform events and game actions to consumers.
-
-### S006 — Android content staging
-
-Lucent does not own Android application mechanics. The separate shared `android-port` framework owns
-Android roots, persisted Storage Access Framework grants, bounded staging, resumable copies, and cleanup.
-
-Lucent has no Android application target; the framework is verified in its own repository and by consumers.
 
 ### S007 — Streaming file responses
 

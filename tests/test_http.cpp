@@ -1,26 +1,69 @@
 #include "lucent/http.h"
 
 #include <atomic>
+#include <algorithm>
 #include <cstdint>
 #include <cstring>
 #include <filesystem>
 #include <fstream>
 #include <future>
 #include <iostream>
+#include <limits>
 #include <optional>
 #include <string>
 #include <thread>
 #include <vector>
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <winsock2.h>
+#include <ws2tcpip.h>
+#include <iphlpapi.h>
+#else
 #include <arpa/inet.h>
 #include <ifaddrs.h>
 #include <netinet/in.h>
 #include <sys/socket.h>
 #include <unistd.h>
+#endif
 
 namespace {
 
 int g_failures = 0;
+
+#ifdef _WIN32
+using ClientSocket = SOCKET;
+using SocketLength = int;
+#else
+using ClientSocket = int;
+using SocketLength = socklen_t;
+#endif
+
+bool valid_client(ClientSocket client) {
+#ifdef _WIN32
+  return client != INVALID_SOCKET;
+#else
+  return client >= 0;
+#endif
+}
+
+void close_client(ClientSocket client) {
+#ifdef _WIN32
+  closesocket(client);
+#else
+  close(client);
+#endif
+}
+
+void shutdown_client_write(ClientSocket client) {
+#ifdef _WIN32
+  shutdown(client, SD_SEND);
+#else
+  shutdown(client, SHUT_WR);
+#endif
+}
 
 #define CHECK(condition)                                                                           \
   do {                                                                                             \
@@ -30,11 +73,14 @@ int g_failures = 0;
     }                                                                                              \
   } while (0)
 
-bool send_all(int socket, std::string_view bytes) {
+bool send_all(ClientSocket client, std::string_view bytes) {
   while (!bytes.empty()) {
-    const ssize_t sent = send(socket, bytes.data(), bytes.size(), 0);
-    if (sent <= 0)
+    auto bounded =
+        (std::min)(bytes.size(), static_cast<std::size_t>((std::numeric_limits<int>::max)()));
+    auto sent = send(client, bytes.data(), static_cast<int>(bounded), 0);
+    if (sent <= 0) {
       return false;
+    }
     bytes.remove_prefix(static_cast<std::size_t>(sent));
   }
   return true;
@@ -42,33 +88,36 @@ bool send_all(int socket, std::string_view bytes) {
 
 std::optional<std::string> try_request(std::uint16_t port, in_addr address_value,
                                        std::string_view wire) {
-  const int client = socket(AF_INET, SOCK_STREAM, 0);
-  if (client < 0)
+  ClientSocket client = socket(AF_INET, SOCK_STREAM, 0);
+  if (!valid_client(client)) {
     return std::nullopt;
+  }
 
   sockaddr_in address{};
   address.sin_family = AF_INET;
   address.sin_port = htons(port);
   address.sin_addr = address_value;
-  if (connect(client, reinterpret_cast<const sockaddr *>(&address), sizeof(address)) != 0) {
-    close(client);
+  if (connect(client, reinterpret_cast<const sockaddr *>(&address),
+              static_cast<SocketLength>(sizeof(address))) != 0) {
+    close_client(client);
     return std::nullopt;
   }
   if (!send_all(client, wire)) {
-    close(client);
+    close_client(client);
     return std::nullopt;
   }
-  shutdown(client, SHUT_WR);
+  shutdown_client_write(client);
 
   std::string response;
   char block[2048];
   for (;;) {
-    const ssize_t count = recv(client, block, sizeof(block), 0);
-    if (count <= 0)
+    auto count = recv(client, block, static_cast<int>(sizeof(block)), 0);
+    if (count <= 0) {
       break;
+    }
     response.append(block, static_cast<std::size_t>(count));
   }
-  close(client);
+  close_client(client);
   return response;
 }
 
@@ -79,9 +128,42 @@ std::string request(std::uint16_t port, std::string_view wire) {
 }
 
 std::optional<in_addr> local_network_address() {
-  ifaddrs *interfaces = nullptr;
-  if (getifaddrs(&interfaces) != 0)
+#ifdef _WIN32
+  ULONG bytes = 15 * 1024;
+  std::vector<unsigned char> storage(bytes);
+  ULONG status = ERROR_BUFFER_OVERFLOW;
+  for (int attempt = 0; attempt < 2; ++attempt) {
+    status = GetAdaptersAddresses(AF_INET, GAA_FLAG_SKIP_ANYCAST, nullptr,
+                                  reinterpret_cast<IP_ADAPTER_ADDRESSES *>(storage.data()), &bytes);
+    if (status != ERROR_BUFFER_OVERFLOW) {
+      break;
+    }
+    storage.resize(bytes);
+  }
+  if (status != NO_ERROR) {
     return std::nullopt;
+  }
+  auto *adapters = reinterpret_cast<IP_ADAPTER_ADDRESSES *>(storage.data());
+  for (IP_ADAPTER_ADDRESSES *adapter = adapters; adapter != nullptr; adapter = adapter->Next) {
+    if (adapter->OperStatus != IfOperStatusUp || adapter->IfType == IF_TYPE_SOFTWARE_LOOPBACK) {
+      continue;
+    }
+    for (IP_ADAPTER_UNICAST_ADDRESS *entry = adapter->FirstUnicastAddress; entry != nullptr;
+         entry = entry->Next) {
+      if (entry->Address.lpSockaddr != nullptr && entry->Address.lpSockaddr->sa_family == AF_INET) {
+        auto *address = reinterpret_cast<sockaddr_in *>(entry->Address.lpSockaddr);
+        if (address->sin_addr.s_addr != htonl(INADDR_LOOPBACK)) {
+          return address->sin_addr;
+        }
+      }
+    }
+  }
+  return std::nullopt;
+#else
+  ifaddrs *interfaces = nullptr;
+  if (getifaddrs(&interfaces) != 0) {
+    return std::nullopt;
+  }
 
   std::optional<in_addr> result;
   for (const ifaddrs *interface = interfaces; interface != nullptr;
@@ -96,6 +178,7 @@ std::optional<in_addr> local_network_address() {
   }
   freeifaddrs(interfaces);
   return result;
+#endif
 }
 
 std::string_view body(std::string_view response) {

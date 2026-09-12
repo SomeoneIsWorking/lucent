@@ -91,12 +91,13 @@ void FileDialog::poll() {
   if (!impl_->result.has_value()) {
     g_main_context_iteration(nullptr, false);
   }
-  if (impl_->result.has_value()) {
-    auto completion = std::move(impl_->completion);
-    auto result = std::move(impl_->result.value());
-    impl_->close();
-    completion(std::move(result));
+  if (!impl_->result.has_value()) {
+    return;
   }
+  Result result = std::move(*impl_->result);
+  Completion completion = std::move(impl_->completion);
+  impl_->close();
+  completion(std::move(result));
 }
 
 void FileDialog::cancel() {
