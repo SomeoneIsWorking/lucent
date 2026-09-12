@@ -167,6 +167,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     add_executable(lucent_cvar_tests tests/test_cvar.cpp)
     target_link_libraries(lucent_cvar_tests PRIVATE lucent)
     add_test(NAME lucent_cvar_tests COMMAND lucent_cvar_tests)
+    set_tests_properties(lucent_cvar_tests PROPERTIES TIMEOUT 30)
 
     add_executable(lucent_content_tests tests/test_content.cpp)
     target_link_libraries(lucent_content_tests PRIVATE lucent)

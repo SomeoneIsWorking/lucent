@@ -4,11 +4,19 @@
 #include "lucent/text.h"
 
 #include <algorithm>
+#include <cstring>
 #include <cstdlib>
 #include <mutex>
 #include <unordered_map>
 
+#ifdef _WIN32
+#ifndef WIN32_LEAN_AND_MEAN
+#define WIN32_LEAN_AND_MEAN
+#endif
+#include <windows.h>
+#else
 extern "C" char **environ;
+#endif
 
 // The names lucent reads for its own two settings. Build-time, because that is the only way for
 // them to be right before anything has had a chance to call a setter — see the long note in
@@ -63,9 +71,31 @@ const std::string &cached_full(std::string key) {
   auto it = st.values.find(key);
   if (it != st.values.end())
     return it->second;
+#ifdef _WIN32
+  // The CRT removes a variable when _putenv_s receives an empty value. Read the
+  // process environment directly so present-but-empty retains its meaning.
+  std::string value;
+  SetLastError(ERROR_SUCCESS);
+  DWORD needed = GetEnvironmentVariableA(key.c_str(), nullptr, 0);
+  bool present = needed != 0 || GetLastError() == ERROR_SUCCESS;
+  while (needed != 0) {
+    value.resize(needed);
+    SetLastError(ERROR_SUCCESS);
+    const DWORD copied = GetEnvironmentVariableA(key.c_str(), value.data(), needed);
+    if (copied < needed) {
+      value.resize(copied);
+      present = copied != 0 || GetLastError() == ERROR_SUCCESS;
+      break;
+    }
+    needed = copied + 1;
+  }
+  st.present[key] = present;
+  return st.values.emplace(std::move(key), std::move(value)).first->second;
+#else
   const char *raw = std::getenv(key.c_str());
   st.present[key] = raw != nullptr;
   return st.values.emplace(std::move(key), raw ? raw : "").first->second;
+#endif
 }
 
 const std::string &cached(std::string_view name) {
@@ -191,6 +221,17 @@ std::vector<std::string> active() {
   State &st = state();
   std::lock_guard lock(st.mutex);
   std::vector<std::string> out;
+#ifdef _WIN32
+  char *environment = GetEnvironmentStringsA();
+  if (!environment)
+    return out;
+  for (const char *entry = environment; *entry != '\0'; entry += std::strlen(entry) + 1) {
+    const std::string_view row(entry);
+    if (st.prefix.empty() || row.substr(0, st.prefix.size()) == st.prefix)
+      out.emplace_back(row);
+  }
+  FreeEnvironmentStringsA(environment);
+#else
   if (!environ)
     return out;
   for (char **e = environ; *e; ++e) {
@@ -198,6 +239,7 @@ std::vector<std::string> active() {
     if (st.prefix.empty() || entry.substr(0, st.prefix.size()) == st.prefix)
       out.emplace_back(entry);
   }
+#endif
   std::sort(out.begin(), out.end());
   return out;
 }

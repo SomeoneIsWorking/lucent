@@ -6,6 +6,7 @@
 #include <cassert>
 #include <cstdint>
 #include <cstdio>
+#include <cstdlib>
 #include <fstream>
 #include <iostream>
 #include <string>
@@ -108,7 +109,7 @@ void c_abi_reads_effective_value_and_aborts_on_unknown(const char *executable) {
 #ifdef _WIN32
   std::intptr_t status = _spawnl(_P_WAIT, executable, executable, "--abort-unknown-cvar",
                                  static_cast<const char *>(nullptr));
-  assert(status != -1 && status != 0);
+  assert(status == 3);
 #else
   (void)executable;
   if (fork() == 0) {
@@ -166,6 +167,10 @@ void enumerate_sees_every_registered_var() {
 
 int main(int argc, char **argv) {
   if (argc == 2 && std::string_view(argv[1]) == "--abort-unknown-cvar") {
+#ifdef _WIN32
+    // The Debug CRT otherwise opens a modal abort dialog on a headless CI runner.
+    _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+#endif
     lucent_cvar_flag("nonexistent", 0);
     return 0;
   }

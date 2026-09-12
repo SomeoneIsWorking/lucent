@@ -5,6 +5,7 @@
 #include "lucent/log_c.h"
 #include "test_environment.h"
 
+#include <algorithm>
 #include <atomic>
 #include <chrono>
 #include <cctype>
@@ -94,6 +95,8 @@ void test_config_flag() {
   // Present-but-empty is still "set". flag() collapses it to false; present() does not.
   set_env("LUCENT_TEST_FLAG", "");
   CHECK(lucent::config::present("LUCENT_TEST_FLAG"));
+  auto active = lucent::config::active();
+  CHECK(std::find(active.begin(), active.end(), "LUCENT_TEST_FLAG=") != active.end());
 
   CHECK(lucent::test::unset_environment("LUCENT_TEST_ABSENT"));
   lucent::config::reset_cache();
