@@ -20,7 +20,7 @@ GInputStream *open_regular_file(const char *path, std::size_t limit, GError **er
                 "Could not open selected file: %s", g_strerror(reason));
     return nullptr;
   }
-  struct stat information{};
+  struct stat information = {};
   if (fstat(descriptor, &information) != 0) {
     const int reason = errno;
     close(descriptor);

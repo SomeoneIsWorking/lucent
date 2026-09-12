@@ -140,8 +140,8 @@ inline void set_reuse_address(Socket socket) {
 
 inline std::ptrdiff_t send_bytes(Socket socket, const char *bytes, std::size_t size) {
 #ifdef _WIN32
-  const auto bounded =
-      static_cast<int>(std::min(size, static_cast<std::size_t>((std::numeric_limits<int>::max)())));
+  const auto bounded = static_cast<int>(
+      (std::min)(size, static_cast<std::size_t>((std::numeric_limits<int>::max)())));
   const int sent = ::send(native_socket(socket), bytes, bounded, 0);
   return sent == SOCKET_ERROR ? -1 : sent;
 #else
@@ -151,8 +151,8 @@ inline std::ptrdiff_t send_bytes(Socket socket, const char *bytes, std::size_t s
 
 inline std::ptrdiff_t receive_bytes(Socket socket, char *bytes, std::size_t size) {
 #ifdef _WIN32
-  const auto bounded =
-      static_cast<int>(std::min(size, static_cast<std::size_t>((std::numeric_limits<int>::max)())));
+  const auto bounded = static_cast<int>(
+      (std::min)(size, static_cast<std::size_t>((std::numeric_limits<int>::max)())));
   const int received = ::recv(native_socket(socket), bytes, bounded, 0);
   return received == SOCKET_ERROR ? -1 : received;
 #else

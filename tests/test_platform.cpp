@@ -7,29 +7,38 @@
 
 int main() {
   using lucent::platform::Environment;
-  const auto linux_path = lucent::platform::resolve_user_data_directory(
-      "xmen2", {"/home/player", "/home/player/.config", ""});
-  assert(linux_path && *linux_path == std::filesystem::path{"/home/player/.config/xmen2"});
+  auto root = std::filesystem::temp_directory_path() / "lucent-platform-fixture";
+  auto home = (root / "home").string();
+  auto config = (root / "config").string();
+  auto appdata = (root / "appdata").string();
+  auto resolved =
+      lucent::platform::resolve_user_data_directory("xmen2", Environment{home, config, appdata});
+#if defined(_WIN32)
+  assert(resolved && *resolved == root / "appdata" / "xmen2");
+#elif defined(__APPLE__)
+  assert(resolved && *resolved == root / "home" / "Library" / "Application Support" / "xmen2");
+#else
+  assert(resolved && *resolved == root / "config" / "xmen2");
+  auto fallback =
+      lucent::platform::resolve_user_data_directory("xmen2", Environment{home, "", appdata});
+  assert(fallback && *fallback == root / "home" / ".config" / "xmen2");
+#endif
 
-  const auto xdg_path =
-      lucent::platform::resolve_user_data_directory("port", {"/home/player", "/mnt/config", ""});
-  assert(xdg_path && *xdg_path == std::filesystem::path{"/mnt/config/port"});
-
-  const auto invalid_name = lucent::platform::resolve_user_data_directory(
-      "../escape", Environment{"/home/player", "/home/player/.config", ""});
+  auto invalid_name = lucent::platform::resolve_user_data_directory(
+      "../escape", Environment{home, config, appdata});
   assert(!invalid_name);
 
-  const auto relative_root =
+  auto relative_root =
       lucent::platform::resolve_user_data_directory("port", {"player", "config", ""});
   assert(!relative_root);
 
-  lucent::platform::set_user_data_directory("/data/user/0/example/files");
-  const auto override_path = lucent::platform::user_data_directory("any-app");
-  assert(override_path && *override_path == std::filesystem::path{"/data/user/0/example/files"});
+  lucent::platform::set_user_data_directory(root / "private");
+  auto override_path = lucent::platform::user_data_directory("any-app");
+  assert(override_path && *override_path == root / "private");
   assert(!lucent::platform::set_user_data_directory("relative"));
   assert(lucent::platform::set_user_data_directory({}));
 
-  const auto temporary = std::filesystem::current_path() / "lucent-platform-test";
+  auto temporary = std::filesystem::current_path() / "lucent-platform-test";
   std::string error;
   assert(lucent::platform::ensure_user_data_directory(temporary, error));
   assert(std::filesystem::is_directory(temporary));

@@ -77,7 +77,7 @@ std::string Directory::prepare() {
   if (parent_descriptor_ < 0) {
     return system_error("Cannot open private backing-file parent");
   }
-  struct stat information{};
+  struct stat information = {};
   std::string error;
   if (fstat(parent_descriptor_, &information) != 0) {
     error = system_error("Cannot inspect backing-file parent");
