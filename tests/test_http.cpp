@@ -122,7 +122,9 @@ std::optional<std::string> try_request(std::uint16_t port, in_addr address_value
 }
 
 std::string request(std::uint16_t port, std::string_view wire) {
-  const auto response = try_request(port, in_addr{htonl(INADDR_LOOPBACK)}, wire);
+  in_addr loopback{};
+  loopback.s_addr = htonl(INADDR_LOOPBACK);
+  auto response = try_request(port, loopback, wire);
   CHECK(response.has_value());
   return response.value_or(std::string{});
 }

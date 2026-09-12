@@ -91,13 +91,13 @@ void FileDialog::poll() {
   if (!impl_->result.has_value()) {
     g_main_context_iteration(nullptr, false);
   }
-  if (!impl_->result.has_value()) {
+  std::optional<Result> completed = std::exchange(impl_->result, std::nullopt);
+  if (!completed.has_value()) {
     return;
   }
-  Result result = std::move(*impl_->result);
   Completion completion = std::move(impl_->completion);
   impl_->close();
-  completion(std::move(result));
+  completion(std::move(*completed));
 }
 
 void FileDialog::cancel() {
