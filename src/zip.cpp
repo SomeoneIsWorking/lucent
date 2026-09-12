@@ -17,8 +17,37 @@ struct Candidate {
   bool nested = false;
 };
 
+enum class Publication : std::uint8_t { Atomic, Unpublished };
+
+bool notify_progress(const ProgressCallback &callback, std::uint64_t done, std::uint64_t total,
+                     std::string &error) {
+  if (!callback) {
+    return true;
+  }
+  try {
+    callback(done, total);
+    return true;
+  } catch (const std::exception &exception) {
+    error = "archive extraction progress callback failed: " + std::string{exception.what()};
+  } catch (...) {
+    error = "archive extraction progress callback failed";
+  }
+  return false;
+}
+
 bool write_entries(ArchiveReader &bytes, const std::vector<Entry> &archive_entries,
-                   const std::filesystem::path &staging, std::string &error) {
+                   const std::filesystem::path &staging, const ProgressCallback &on_progress,
+                   std::string &error) {
+  std::uint64_t total = 0;
+  for (const Entry &entry : archive_entries) {
+    total += entry.uncompressed_size;
+  }
+  std::uint64_t done = 0;
+  std::uint64_t interval = std::max<std::uint64_t>(1, total / 100);
+  std::uint64_t next_report = interval;
+  if (!notify_progress(on_progress, 0, total, error)) {
+    return false;
+  }
   std::error_code filesystem_error;
   for (const Entry &entry : archive_entries) {
     const std::filesystem::path output_path = staging / std::filesystem::path(entry.name);
@@ -40,12 +69,26 @@ bool write_entries(ArchiveReader &bytes, const std::vector<Entry> &archive_entri
       error = "could not create extracted archive file: " + output_path.string();
       return false;
     }
-    const auto write = [&](ByteView chunk) {
+    std::string progress_error;
+    auto write = [&](ByteView chunk) {
       output.write(reinterpret_cast<const char *>(chunk.data()),
                    static_cast<std::streamsize>(chunk.size()));
-      return static_cast<bool>(output);
+      if (!output) {
+        return false;
+      }
+      done += chunk.size();
+      if (done >= next_report && done < total) {
+        if (!notify_progress(on_progress, done, total, progress_error)) {
+          return false;
+        }
+        next_report = done + interval;
+      }
+      return true;
     };
     if (!stream_entry(bytes, entry, write, error)) {
+      if (!progress_error.empty()) {
+        error = std::move(progress_error);
+      }
       return false;
     }
     output.close();
@@ -54,20 +97,21 @@ bool write_entries(ArchiveReader &bytes, const std::vector<Entry> &archive_entri
       return false;
     }
   }
-  return true;
+  return notify_progress(on_progress, total, total, error);
 }
 
-void discard_staging(const std::filesystem::path &staging, std::string &error) {
+void discard_extraction(const std::filesystem::path &staging, std::string &error) {
   std::error_code cleanup_error;
   std::filesystem::remove_all(staging, cleanup_error);
   if (cleanup_error) {
-    error += "; additionally could not remove extraction staging directory: " + staging.string();
+    error += "; additionally could not remove extraction directory: " + staging.string();
   }
 }
 
-bool extract_atomically(ArchiveReader &bytes, const std::vector<Entry> &archive_entries,
-                        const std::filesystem::path &destination,
-                        std::vector<std::filesystem::path> &files, std::string &error) {
+bool extract_entries(ArchiveReader &bytes, const std::vector<Entry> &archive_entries,
+                     const std::filesystem::path &destination,
+                     std::vector<std::filesystem::path> &files, std::string &error,
+                     Publication publication, const ProgressCallback &on_progress) {
   const std::filesystem::path parent =
       destination.parent_path().empty() ? std::filesystem::path{"."} : destination.parent_path();
   std::error_code filesystem_error;
@@ -81,7 +125,9 @@ bool extract_atomically(ArchiveReader &bytes, const std::vector<Entry> &archive_
     return false;
   }
   std::filesystem::path staging = destination;
-  staging += ".lucent-stage";
+  if (publication == Publication::Atomic) {
+    staging += ".lucent-stage";
+  }
   if (std::filesystem::exists(staging, filesystem_error) || filesystem_error) {
     error = filesystem_error ? "could not inspect extraction staging path"
                              : "extraction staging path already exists: " + staging.string();
@@ -91,15 +137,17 @@ bool extract_atomically(ArchiveReader &bytes, const std::vector<Entry> &archive_
     error = "could not create extraction staging directory: " + staging.string();
     return false;
   }
-  if (!write_entries(bytes, archive_entries, staging, error)) {
-    discard_staging(staging, error);
+  if (!write_entries(bytes, archive_entries, staging, on_progress, error)) {
+    discard_extraction(staging, error);
     return false;
   }
-  std::filesystem::rename(staging, destination, filesystem_error);
-  if (filesystem_error) {
-    error = "could not publish extracted archive: " + destination.string();
-    discard_staging(staging, error);
-    return false;
+  if (publication == Publication::Atomic) {
+    std::filesystem::rename(staging, destination, filesystem_error);
+    if (filesystem_error) {
+      error = "could not publish extracted archive: " + destination.string();
+      discard_extraction(staging, error);
+      return false;
+    }
   }
 
   std::vector<std::filesystem::path> published;
@@ -110,6 +158,13 @@ bool extract_atomically(ArchiveReader &bytes, const std::vector<Entry> &archive_
   }
   files.swap(published);
   return true;
+}
+
+bool extract_atomically(ArchiveReader &bytes, const std::vector<Entry> &archive_entries,
+                        const std::filesystem::path &destination,
+                        std::vector<std::filesystem::path> &files, std::string &error) {
+  return extract_entries(bytes, archive_entries, destination, files, error, Publication::Atomic,
+                         {});
 }
 
 bool zip_candidate(const Entry &entry, ByteView content) {
@@ -335,14 +390,19 @@ bool extract_unique_install(std::span<const std::uint8_t> archive,
   return true;
 }
 
-// Keep the existing source API while archive and destination retain distinct documented roles.
-// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
-bool extract_install(const std::filesystem::path &archive, const std::filesystem::path &destination,
-                     std::string_view required_name, std::filesystem::path &executable,
-                     std::string &error, ExtractionLimits limits) {
+namespace {
+struct InstallPaths {
+  const std::filesystem::path &archive;
+  const std::filesystem::path &destination;
+};
+
+bool extract_install_impl(InstallPaths paths, std::string_view required_name,
+                          std::filesystem::path &executable, std::string &error,
+                          ExtractionLimits limits, Publication publication,
+                          const ProgressCallback &on_progress) {
   FileArchive reader;
   std::string failure;
-  if (!reader.open(archive, limits, failure)) {
+  if (!reader.open(paths.archive, limits, failure)) {
     error = std::move(failure);
     return false;
   }
@@ -363,7 +423,8 @@ bool extract_install(const std::filesystem::path &archive, const std::filesystem
     return false;
   }
   std::vector<std::filesystem::path> files;
-  if (!extract_atomically(reader, archive_entries, destination, files, failure)) {
+  if (!extract_entries(reader, archive_entries, paths.destination, files, failure, publication,
+                       on_progress)) {
     error = std::move(failure);
     return false;
   }
@@ -372,6 +433,25 @@ bool extract_install(const std::filesystem::path &archive, const std::filesystem
   });
   error.clear();
   return true;
+}
+} // namespace
+
+// Keep the existing source API while archive and destination retain distinct documented roles.
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
+bool extract_install(const std::filesystem::path &archive, const std::filesystem::path &destination,
+                     std::string_view required_name, std::filesystem::path &executable,
+                     std::string &error, ExtractionLimits limits) {
+  return extract_install_impl({archive, destination}, required_name, executable, error, limits,
+                              Publication::Atomic, {});
+}
+
+bool extract_install_unpublished(const std::filesystem::path &archive,
+                                 const std::filesystem::path &destination,
+                                 std::string_view required_name, std::filesystem::path &executable,
+                                 std::string &error, ExtractionLimits limits,
+                                 const ProgressCallback &on_progress) {
+  return extract_install_impl({archive, destination}, required_name, executable, error, limits,
+                              Publication::Unpublished, on_progress);
 }
 
 } // namespace lucent::zip

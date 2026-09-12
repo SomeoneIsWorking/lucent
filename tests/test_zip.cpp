@@ -111,6 +111,15 @@ int main() {
               << "\n";
     return 1;
   }
+  std::filesystem::path unpublished_destination = "zip-test-unpublished-output";
+  executable = "previous-selection";
+  if (lucent::zip::extract_install_unpublished(corrupt_archive, unpublished_destination,
+                                               "XMen2.exe", executable, error) ||
+      error.empty() || std::filesystem::exists(unpublished_destination) ||
+      executable != "previous-selection") {
+    std::cerr << "corrupt unpublished install left a partial destination: " << error << "\n";
+    return 1;
+  }
   std::filesystem::remove(corrupt_archive);
 
   if (!lucent::zip::extract_install(archive, destination, "XMen2.exe", executable, error) ||
@@ -119,6 +128,40 @@ int main() {
     return 1;
   }
   std::filesystem::remove_all(destination);
+
+  std::vector<std::pair<std::uint64_t, std::uint64_t>> progress;
+  auto observe = [&](std::uint64_t done, std::uint64_t total) {
+    progress.emplace_back(done, total);
+  };
+  if (!lucent::zip::extract_install_unpublished(archive, unpublished_destination, "XMen2.exe",
+                                                executable, error, {}, observe) ||
+      executable != unpublished_destination / "Install/Sub/XMen2.exe" ||
+      !std::filesystem::is_regular_file(executable) || progress.size() < 2 ||
+      progress.front() != std::pair<std::uint64_t, std::uint64_t>{0, 17} ||
+      progress.back() != std::pair<std::uint64_t, std::uint64_t>{17, 17} ||
+      std::filesystem::exists(unpublished_destination.string() + ".lucent-stage")) {
+    std::cerr << "unpublished install or expanded-byte progress was incorrect: " << error << "\n";
+    return 1;
+  }
+  if (lucent::zip::extract_install_unpublished(archive, unpublished_destination, "XMen2.exe",
+                                               executable, error) ||
+      error.find("already exists") == std::string::npos ||
+      !std::filesystem::is_regular_file(executable)) {
+    std::cerr << "unpublished install did not preserve the existing destination: " << error << "\n";
+    return 1;
+  }
+  std::filesystem::remove_all(unpublished_destination);
+  executable = "previous-selection";
+  if (lucent::zip::extract_install_unpublished(archive, unpublished_destination, "XMen2.exe",
+                                               executable, error, {},
+                                               [](std::uint64_t, std::uint64_t) {
+                                                 throw std::runtime_error("observer broke");
+                                               }) ||
+      error.find("observer broke") == std::string::npos ||
+      std::filesystem::exists(unpublished_destination) || executable != "previous-selection") {
+    std::cerr << "progress failure left a partial destination: " << error << "\n";
+    return 1;
+  }
 
   const auto expect_refused = [&](lucent::zip::ExtractionLimits limits, std::string_view expected) {
     error.clear();
