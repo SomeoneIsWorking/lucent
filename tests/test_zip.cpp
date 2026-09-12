@@ -18,6 +18,7 @@ using namespace zip_test;
 int main() {
   const std::filesystem::path archive = "zip-test-fixture.zip";
   const std::filesystem::path destination = "zip-test-output";
+  const std::filesystem::path staging = "zip-test-output.lucent-stage";
   {
     std::ofstream output(archive, std::ios::binary);
     const auto bytes = make_archive();
@@ -71,11 +72,35 @@ int main() {
   extracted_files.clear();
   if (lucent::zip::extract_archive(mismatch_archive, destination, extracted_files, error) ||
       error.find("disagrees with its central directory") == std::string::npos ||
-      std::filesystem::exists(destination)) {
-    std::cerr << "local/central mismatch was not refused before staging: " << error << "\n";
+      std::filesystem::exists(destination) || std::filesystem::exists(staging)) {
+    std::cerr << "local/central mismatch left a published or staged extraction: " << error << "\n";
     return 1;
   }
   std::filesystem::remove(mismatch_archive);
+
+  const std::filesystem::path corrupt_archive = "zip-test-corrupt-after-first.zip";
+  {
+    auto bytes = make_archive();
+    const std::string name = "Install/Sub/XMen2.exe";
+    const auto local_name = std::search(bytes.begin(), bytes.end(), name.begin(), name.end());
+    if (local_name == bytes.end() ||
+        static_cast<std::size_t>(bytes.end() - local_name) <= name.size()) {
+      std::cerr << "could not locate the fixture's second entry payload\n";
+      return 1;
+    }
+    *(local_name + static_cast<std::ptrdiff_t>(name.size())) ^= 1;
+    std::ofstream output(corrupt_archive, std::ios::binary);
+    output.write(reinterpret_cast<const char *>(bytes.data()), bytes.size());
+  }
+  extracted_files.clear();
+  if (lucent::zip::extract_archive(corrupt_archive, destination, extracted_files, error) ||
+      error.empty() || std::filesystem::exists(destination) || std::filesystem::exists(staging) ||
+      !extracted_files.empty()) {
+    std::cerr << "corruption after a valid entry left a published or staged extraction: " << error
+              << "\n";
+    return 1;
+  }
+  std::filesystem::remove(corrupt_archive);
 
   if (!lucent::zip::extract_install(archive, destination, "XMen2.exe", executable, error) ||
       executable.filename() != "XMen2.exe" || !std::filesystem::is_regular_file(executable)) {
