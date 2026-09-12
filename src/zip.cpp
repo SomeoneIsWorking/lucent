@@ -17,15 +17,6 @@ struct Candidate {
   bool nested = false;
 };
 
-bool validate_entries(ArchiveReader &bytes, const std::vector<Entry> &archive_entries,
-                      std::string &error) {
-  for (const Entry &entry : archive_entries) {
-    if (!stream_entry(bytes, entry, {}, error))
-      return false;
-  }
-  return true;
-}
-
 bool write_entries(ArchiveReader &bytes, const std::vector<Entry> &archive_entries,
                    const std::filesystem::path &staging, std::string &error) {
   std::error_code filesystem_error;
@@ -75,9 +66,6 @@ void discard_staging(const std::filesystem::path &staging, std::string &error) {
 bool extract_atomically(ArchiveReader &bytes, const std::vector<Entry> &archive_entries,
                         const std::filesystem::path &destination,
                         std::vector<std::filesystem::path> &files, std::string &error) {
-  if (!validate_entries(bytes, archive_entries, error))
-    return false;
-
   const std::filesystem::path parent =
       destination.parent_path().empty() ? std::filesystem::path{"."} : destination.parent_path();
   std::error_code filesystem_error;
