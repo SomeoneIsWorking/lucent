@@ -71,17 +71,17 @@ public final class LucentDocumentImport {
      * app. Lucent reports what it has copied; the words stay with the
      * consumer.</p>
      *
-     * <p>Delivered on the Activity's main thread, at most every 150 ms, and
-     * never with a total: a SAF tree is enumerated as it is walked, so the
-     * size of what remains is not known until it has been read. `bytes` and
-     * `entries` are what has been copied SO FAR.</p>
+     * <p>Delivered on the Activity's main thread, at most every 500 ms. For a
+     * document, {@code totalBytes} comes from its descriptor and permits a real
+     * determinate bar. Tree providers may report zero when no total is available.
+     * {@code bytes} and {@code entries} are what has been copied so far.</p>
      *
      * <p>A last update may arrive just after the import finished, because the
      * post that carries it was already in flight. Consumers that care should
      * ignore progress once {@link #active()} is false.</p>
      */
     public interface ProgressListener {
-        void onProgress(long entries, long bytes, String currentName);
+        void onProgress(long entries, long bytes, long totalBytes, String currentName);
     }
 
     /* Android notification managers commonly allow about five updates per second.  A 500 ms
@@ -90,9 +90,11 @@ public final class LucentDocumentImport {
     private static final long PROGRESS_INTERVAL_MILLIS = 500;
     private static final String STAGING_PREFIX = "lucent-import-";
     private static final String PREVIOUS_PREFIX = ".lucent-previous-";
+    private static final String SOURCE_MARKER = ".lucent-source";
     private static final SecureRandom RANDOM = new SecureRandom();
 
     private final Activity activity;
+    private final File storageRoot;
     private final Limits limits;
     private final LucentImportRequest<Callback> request = new LucentImportRequest<>();
     private boolean workerActive;
@@ -102,10 +104,16 @@ public final class LucentDocumentImport {
     private long lastProgressMillis;
 
     public LucentDocumentImport(Activity activity, Limits limits) {
-        if (activity == null || limits == null) {
-            throw new IllegalArgumentException("activity and limits are required");
+        this(activity, activity == null ? null : activity.getFilesDir(), limits);
+    }
+
+    /** Uses a caller-owned persistent root, such as Android's package OBB directory. */
+    public LucentDocumentImport(Activity activity, File storageRoot, Limits limits) {
+        if (activity == null || storageRoot == null || limits == null) {
+            throw new IllegalArgumentException("activity, storage root and limits are required");
         }
         this.activity = activity;
+        this.storageRoot = storageRoot;
         this.limits = limits;
     }
 
@@ -212,13 +220,15 @@ public final class LucentDocumentImport {
         if (active()) {
             return;
         }
-        File[] candidates = activity.getFilesDir().listFiles();
+        File[] candidates = storageRoot.getCanonicalFile().listFiles();
         if (candidates == null) {
             return;
         }
         for (File candidate : candidates) {
             if (candidate.getName().startsWith(STAGING_PREFIX)) {
-                LucentImportPromotion.remove(candidate);
+                if (!new File(candidate, SOURCE_MARKER).isFile()) {
+                    LucentImportPromotion.remove(candidate);
+                }
             } else if (candidate.getName().startsWith(PREVIOUS_PREFIX)) {
                 recoverPreviousSelection(candidate);
             }
@@ -241,8 +251,12 @@ public final class LucentDocumentImport {
     public synchronized File promoteValidated(Result result, File selectedDirectory,
                                               String destinationName) throws IOException {
         validateLeafName(destinationName);
-        File root = activity.getFilesDir().getCanonicalFile();
+        File root = storageRoot.getCanonicalFile();
         File staging = validatedStaging(result, root);
+        File marker = new File(staging, SOURCE_MARKER);
+        if (marker.isFile() && !marker.delete()) {
+            throw new IOException("cannot retire the resumable import marker");
+        }
         File destination = privateChild(root, destinationName);
         File previous = privateChild(root, PREVIOUS_PREFIX + destinationName);
         return LucentImportPromotion.publish(staging, selectedDirectory, destination, previous);
@@ -262,7 +276,7 @@ public final class LucentDocumentImport {
         if (active()) {
             throw new IOException("cannot discard an import while another import is active");
         }
-        File root = activity.getFilesDir().getCanonicalFile();
+        File root = storageRoot.getCanonicalFile();
         File staging = result.stagingDirectory.getCanonicalFile();
         if (!staging.getParentFile().equals(root) || !staging.getName().startsWith(STAGING_PREFIX)
                 || !staging.isDirectory()) {
@@ -286,7 +300,7 @@ public final class LucentDocumentImport {
             throw new IllegalArgumentException("only a staged document can be discarded");
         }
         validateLeafName(result.documentName);
-        File root = activity.getFilesDir().getCanonicalFile();
+        File root = storageRoot.getCanonicalFile();
         File staging = validatedStaging(result, root);
         File document = privateChild(staging, result.documentName);
         if (!document.isFile()) {
@@ -308,29 +322,27 @@ public final class LucentDocumentImport {
     private void importSelection(Uri source, boolean isTree) {
         File staging = null;
         try {
-            staging = createStaging();
+            String documentName = isTree ? "" : readDocumentName(source);
+            if (!isTree) validateLeafName(documentName);
+            staging = isTree ? createStaging() : findOrCreateResumableStaging(documentName, source);
             Budget budget = new Budget(limits);
-            String documentName = "";
+            if (!isTree) budget.setTotalBytes(sourceSize(source));
             if (isTree) {
                 copyTree(source, DocumentsContract.getTreeDocumentId(source), staging, budget);
             } else {
-                documentName = readDocumentName(source);
-                validateLeafName(documentName);
                 budget.addEntry(-1);
-                copyFile(source, new File(staging, documentName), budget, -1);
+                File target = new File(staging, documentName);
+                long existing = target.isFile() ? target.length() : 0;
+                budget.addBytes(existing);
+                copyFile(source, target, budget, -1, existing);
             }
             File completedStaging = staging;
             String completedName = documentName;
             activity.runOnUiThread(() -> finishSuccess(new Result(completedStaging, completedName, isTree)));
         } catch (IOException | RuntimeException error) {
-            // Android document providers are outside Lucent's control. Some
-            // providers throw unchecked exceptions from openInputStream()
-            // instead of returning a null stream or IOException. This is the
-            // import boundary: discard partial staging and report failure to
-            // the Activity rather than leaving the app process dead.
-            if (staging != null) {
-                LucentImportPromotion.remove(staging);
-            }
+            // Android document providers are outside Lucent's control. Keep a
+            // staged archive and its source marker so the next selection can
+            // resume from its current length; the title discards rejected input.
             String detail = error.getMessage();
             activity.runOnUiThread(() -> finishFailure(
                     "Could not import the selected game files" + (detail == null ? "." : ": " + detail)));
@@ -359,11 +371,42 @@ public final class LucentDocumentImport {
         lastProgressMillis = now;
         final long entries = budget.entries();
         final long bytes = budget.bytes();
-        activity.runOnUiThread(() -> listener.onProgress(entries, bytes, currentName));
+        final long totalBytes = budget.totalBytes();
+        activity.runOnUiThread(() -> listener.onProgress(entries, bytes, totalBytes, currentName));
+    }
+
+    private File findOrCreateResumableStaging(String documentName, Uri source) throws IOException {
+        File root = storageRoot.getCanonicalFile();
+        File[] candidates = root.listFiles();
+        if (candidates != null) {
+            for (File candidate : candidates) {
+                if (!candidate.getName().startsWith(STAGING_PREFIX)) continue;
+                File marker = new File(candidate, SOURCE_MARKER);
+                if (!marker.isFile()) continue;
+                String saved;
+                try (java.io.BufferedReader reader = new java.io.BufferedReader(new java.io.FileReader(marker))) {
+                    saved = reader.readLine();
+                }
+                if (saved != null && saved.equals(source.toString())
+                        && new File(candidate, documentName).isFile()) {
+                    return candidate;
+                }
+            }
+        }
+        File staging = createStaging();
+        try {
+            try (java.io.FileWriter writer = new java.io.FileWriter(new File(staging, SOURCE_MARKER))) {
+                writer.write(source.toString());
+            }
+        } catch (IOException error) {
+            LucentImportPromotion.remove(staging);
+            throw error;
+        }
+        return staging;
     }
 
     private File createStaging() throws IOException {
-        File root = activity.getFilesDir().getCanonicalFile();
+        File root = storageRoot.getCanonicalFile();
         for (int attempt = 0; attempt < 16; ++attempt) {
             File staging = new File(root, STAGING_PREFIX + Long.toUnsignedString(RANDOM.nextLong(), 36));
             if (staging.mkdir()) {
@@ -397,7 +440,7 @@ public final class LucentDocumentImport {
         String destinationName = previous.getName().substring(PREVIOUS_PREFIX.length());
         try {
             validateLeafName(destinationName);
-            File root = activity.getFilesDir().getCanonicalFile();
+            File root = storageRoot.getCanonicalFile();
             File destination = privateChild(root, destinationName);
             if (destination.exists()) {
                 if (!LucentImportPromotion.remove(previous)) {
@@ -445,13 +488,13 @@ public final class LucentDocumentImport {
                     }
                     copyTree(tree, id, target, budget);
                 } else {
-                    copyFile(child, target, budget, declaredSize);
+                    copyFile(child, target, budget, declaredSize, 0);
                 }
             }
         }
     }
 
-    private void copyFile(Uri source, File target, Budget budget, long declaredSize)
+    private void copyFile(Uri source, File target, Budget budget, long declaredSize, long resumeBytes)
             throws IOException {
         /* A provider's explicit size of zero means no bytes need reading.
          * Unknown sizes remain on the normal byte stream. */
@@ -462,7 +505,16 @@ public final class LucentDocumentImport {
             return;
         }
         try (InputStream input = openFile(source, target.getName());
-             OutputStream output = new FileOutputStream(target)) {
+             OutputStream output = new FileOutputStream(target, resumeBytes > 0)) {
+            long skipped = 0;
+            while (skipped < resumeBytes) {
+                long step = input.skip(resumeBytes - skipped);
+                if (step <= 0) {
+                    if (input.read() < 0) throw new IOException("resumable source changed");
+                    step = 1;
+                }
+                skipped += step;
+            }
             byte[] buffer = new byte[limits.bufferBytes];
             for (int count; (count = input.read(buffer)) >= 0; ) {
                 checkCancelled();
@@ -491,6 +543,15 @@ public final class LucentDocumentImport {
             return new ParcelFileDescriptor.AutoCloseInputStream(descriptor);
         } catch (RuntimeException error) {
             throw new IOException("selected provider could not open " + displayName, error);
+        }
+    }
+
+    private long sourceSize(Uri source) throws IOException {
+        try (ParcelFileDescriptor descriptor = activity.getContentResolver().openFileDescriptor(source, "r")) {
+            if (descriptor == null || descriptor.getStatSize() < 0) return 0;
+            return descriptor.getStatSize();
+        } catch (RuntimeException error) {
+            throw new IOException("selected provider could not measure the document", error);
         }
     }
 
@@ -555,6 +616,7 @@ public final class LucentDocumentImport {
         private final Limits limits;
         private int entries;
         private long bytes;
+        private long totalBytes;
 
         Budget(Limits limits) {
             this.limits = limits;
@@ -577,7 +639,15 @@ public final class LucentDocumentImport {
             return bytes;
         }
 
-        void addBytes(int count) throws IOException {
+        long totalBytes() {
+            return totalBytes;
+        }
+
+        void setTotalBytes(long total) {
+            totalBytes = total > 0 ? total : 0;
+        }
+
+        void addBytes(long count) throws IOException {
             if (count > limits.maximumBytes - bytes) {
                 throw new IOException("selection exceeds the byte limit");
             }

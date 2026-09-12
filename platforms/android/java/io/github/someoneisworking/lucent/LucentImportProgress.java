@@ -34,11 +34,17 @@ public final class LucentImportProgress {
         }
     }
 
-    public void start(String progress) { notification.start(build(progress)); }
-    public void update(String progress) { notification.update(build(progress)); }
+    public void start(String progress) { start(progress, 0, 0); }
+    public void update(String progress) { update(progress, 0, 0); }
+    public void start(String progress, long bytes, long totalBytes) {
+        notification.start(build(progress, bytes, totalBytes));
+    }
+    public void update(String progress, long bytes, long totalBytes) {
+        notification.update(build(progress, bytes, totalBytes));
+    }
     public void stop() { notification.stop(); }
 
-    private Notification build(String progress) {
+    private Notification build(String progress, long bytes, long totalBytes) {
         Notification.Builder builder = Build.VERSION.SDK_INT >= Build.VERSION_CODES.O
                 ? new Notification.Builder(context, channelId) : new Notification.Builder(context);
         Intent tap = new Intent(context, destination);
@@ -49,9 +55,13 @@ public final class LucentImportProgress {
                 .setContentText(progress)
                 .setSmallIcon(android.R.drawable.stat_sys_download)
                 .setOngoing(true)
-                // SAF enumerates as it copies, so a percentage would invent an unknown total.
-                .setProgress(0, 0, true)
+                .setProgress(1000, progressValue(bytes, totalBytes), totalBytes <= 0)
                 .setContentIntent(PendingIntent.getActivity(context, 0, tap, flags))
                 .build();
+    }
+
+    private static int progressValue(long bytes, long totalBytes) {
+        if (totalBytes <= 0) return 0;
+        return (int) Math.min(1000, Math.max(0, bytes * 1000.0 / totalBytes));
     }
 }
