@@ -75,11 +75,10 @@ and cancellation while leaving platform events and game actions to consumers.
 
 ### S006 — Android content staging
 
-The Android platform seam owns app-private roots, persisted Storage Access Framework grants, bounded
-staging, and cleanup while consumers retain title identity and install policy.
+Lucent does not own Android application mechanics. The separate shared `android-port` framework owns
+Android roots, persisted Storage Access Framework grants, bounded staging, resumable copies, and cleanup.
 
-Gap: the Android-only implementation is covered by source-contract tests on this host but has not been
-compiled and exercised through Lucent's own Android target.
+Lucent has no Android application target; the framework is verified in its own repository and by consumers.
 
 ### S007 — Streaming file responses
 
@@ -112,9 +111,8 @@ the core target without the optional zlib-backed ZIP target because the workflow
 zlib dependency; Linux and macOS exercise the ZIP target.
 
 Gap: the first hosted run for the workflow is still required before this item can be marked verified.
-Android is blocked rather than represented by a fake job: Lucent contains title-neutral Android Java
-runtime sources but no standalone Gradle/package target. The shared `android-port` owner supplies the
-build/package boundary for consuming ports.
+Android application Java is intentionally outside Lucent. The shared `android-port` repository owns the
+framework and build/package boundary for consuming ports.
 
 ### S011 — Linux native file chooser
 
@@ -141,8 +139,8 @@ Consumers must select this prefix; arbitrary system GTK is not covered by
 the corrected keyboard-lifecycle evidence.
 
 Gap: the desktop-portal presentation has not been exercised. Linux CI enables the optional target;
-its hosted result remains pending. Windows/macOS pickers are unsupported; Android retains its
-separate `LucentDocumentImport` SAF owner.
+its hosted result remains pending. Windows/macOS pickers are unsupported; Android application selection belongs to the separate shared
+`android-port` framework.
 
 ### S012 — Linux bounded asynchronous file reads
 
