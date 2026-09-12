@@ -2,8 +2,8 @@
 
 #include "lucent/config.h"
 #include "lucent/cvar_c.h"
+#include "lucent/text.h"
 
-#include <algorithm>
 #include <cctype>
 #include <cstdio>
 #include <cstdlib>
@@ -19,13 +19,6 @@ namespace lucent::cvar {
 namespace detail {
 namespace {
 
-std::string lower(std::string_view v) {
-  std::string out(v);
-  std::transform(out.begin(), out.end(), out.begin(),
-                 [](unsigned char c) { return static_cast<char>(std::tolower(c)); });
-  return out;
-}
-
 std::string_view trim(std::string_view v) {
   const auto is_space = [](unsigned char c) { return std::isspace(c) != 0; };
   while (!v.empty() && is_space(static_cast<unsigned char>(v.front())))
@@ -38,7 +31,7 @@ std::string_view trim(std::string_view v) {
 } // namespace
 
 bool parse(std::string_view text, bool &out) {
-  const std::string t = lower(trim(text));
+  const std::string t = lucent::text::ascii_lower(trim(text));
   if (t == "1" || t == "true" || t == "yes" || t == "on") {
     out = true;
     return true;

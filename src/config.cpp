@@ -1,6 +1,7 @@
 #include "lucent/config.h"
 
 #include "lucent/log.h"
+#include "lucent/text.h"
 
 #include <algorithm>
 #include <cstdlib>
@@ -90,9 +91,7 @@ void clear_caches_locked() {
 }
 
 bool falsey(std::string_view v) {
-  std::string lower(v);
-  std::transform(lower.begin(), lower.end(), lower.begin(),
-                 [](unsigned char ch) { return static_cast<char>(std::tolower(ch)); });
+  std::string lower = lucent::text::ascii_lower(v);
   return lower == "0" || lower == "false" || lower == "no" || lower == "off";
 }
 

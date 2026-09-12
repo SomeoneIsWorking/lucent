@@ -3,6 +3,7 @@
 #include "lucent/config.h"
 #include "lucent/log.h"
 #include "lucent/log_c.h"
+#include "test_environment.h"
 
 #include <atomic>
 #include <chrono>
@@ -47,7 +48,7 @@ const bool g_early_answer_at_static_init = static_cast<bool>(g_early_channel);
   } while (0)
 
 void set_env(const char *name, const char *value) {
-  setenv(name, value, 1);
+  CHECK(lucent::test::set_environment(name, value));
   lucent::config::reset_cache();
 }
 
@@ -94,7 +95,7 @@ void test_config_flag() {
   set_env("LUCENT_TEST_FLAG", "");
   CHECK(lucent::config::present("LUCENT_TEST_FLAG"));
 
-  unsetenv("LUCENT_TEST_ABSENT");
+  CHECK(lucent::test::unset_environment("LUCENT_TEST_ABSENT"));
   lucent::config::reset_cache();
   CHECK(!lucent::config::flag("LUCENT_TEST_ABSENT"));
   CHECK(!lucent::config::present("LUCENT_TEST_ABSENT"));
@@ -108,13 +109,13 @@ void test_config_number_and_text() {
   CHECK_EQ(lucent::config::number("LUCENT_TEST_NUM", 7), 32L);
   set_env("LUCENT_TEST_NUM", "not-a-number");
   CHECK_EQ(lucent::config::number("LUCENT_TEST_NUM", 7), 7L);
-  unsetenv("LUCENT_TEST_NUM");
+  CHECK(lucent::test::unset_environment("LUCENT_TEST_NUM"));
   lucent::config::reset_cache();
   CHECK_EQ(lucent::config::number("LUCENT_TEST_NUM", 7), 7L);
 
   set_env("LUCENT_TEST_TEXT", "/tmp/x.log");
   CHECK_EQ(lucent::config::text("LUCENT_TEST_TEXT"), std::string("/tmp/x.log"));
-  unsetenv("LUCENT_TEST_TEXT");
+  CHECK(lucent::test::unset_environment("LUCENT_TEST_TEXT"));
   lucent::config::reset_cache();
   CHECK(lucent::config::text("LUCENT_TEST_TEXT").empty());
 }
@@ -523,14 +524,17 @@ void test_c_logging_api() {
   lucent_log_error("cchan", "error message");
   lucent_log_debug("cchan", "debug on %d", 1);
   lucent_log_debug("offchan", "debug off %d", 2);
+  std::string long_text(700, 'x');
+  lucent_log_info("cchan", "%s", long_text.c_str());
   lucent::enable_channels("");
 
-  CHECK_EQ(cap.lines.size(), 4u);
-  if (cap.lines.size() == 4u) {
+  CHECK_EQ(cap.lines.size(), 5u);
+  if (cap.lines.size() == 5u) {
     CHECK_EQ(without_timestamp(cap.lines[0]), "[cchan] info message 42");
     CHECK_EQ(without_timestamp(cap.lines[1]), "[cchan:warn] warn message test");
     CHECK_EQ(without_timestamp(cap.lines[2]), "[cchan:error] error message");
     CHECK_EQ(without_timestamp(cap.lines[3]), "[cchan] debug on 1");
+    CHECK_EQ(without_timestamp(cap.lines[4]), "[cchan] " + long_text);
   }
 }
 

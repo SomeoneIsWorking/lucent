@@ -1,8 +1,9 @@
 #include "zip_directory.h"
 
+#include "lucent/text.h"
+
 #include <algorithm>
 #include <array>
-#include <cctype>
 #include <limits>
 #include <unordered_set>
 
@@ -23,12 +24,7 @@ bool has(ByteView bytes, std::size_t offset, std::size_t length) {
 }
 
 bool equal_name(std::string_view left, std::string_view right) {
-  if (left.size() != right.size())
-    return false;
-  return std::equal(left.begin(), left.end(), right.begin(), [](char a, char b) {
-    return std::tolower(static_cast<unsigned char>(a)) ==
-           std::tolower(static_cast<unsigned char>(b));
-  });
+  return lucent::text::ascii_iequals(left, right);
 }
 
 bool safe_name(std::string_view name) {
@@ -44,9 +40,7 @@ bool safe_name(std::string_view name) {
         part.back() == '.' || part.back() == ' ')
       return false;
     const std::size_t extension = part.find('.');
-    std::string stem{part.substr(0, extension)};
-    std::transform(stem.begin(), stem.end(), stem.begin(),
-                   [](unsigned char value) { return static_cast<char>(std::tolower(value)); });
+    std::string stem = lucent::text::ascii_lower(part.substr(0, extension));
     const bool numbered_device = stem.size() == 4 &&
                                  (stem.starts_with("com") || stem.starts_with("lpt")) &&
                                  stem[3] >= '1' && stem[3] <= '9';
@@ -60,12 +54,10 @@ bool safe_name(std::string_view name) {
 }
 
 std::string normalized_name(std::string_view name) {
-  if (!name.empty() && name.back() == '/')
+  if (!name.empty() && name.back() == '/') {
     name.remove_suffix(1);
-  std::string normalized{name};
-  std::transform(normalized.begin(), normalized.end(), normalized.begin(),
-                 [](unsigned char value) { return static_cast<char>(std::tolower(value)); });
-  return normalized;
+  }
+  return lucent::text::ascii_lower(name);
 }
 
 bool reserve_budget(std::uint64_t amount, std::uint64_t limit, std::uint64_t &used,

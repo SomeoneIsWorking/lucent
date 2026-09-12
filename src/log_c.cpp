@@ -8,7 +8,7 @@
 #include <vector>
 
 namespace {
-void emit_log(lucent::Level level, const char *channel, const char *fmt, va_list args) {
+void emit_log(lucent::Level level, const char *channel, const char *fmt, va_list &args) {
   va_list args_copy;
   va_copy(args_copy, args);
   std::array<char, 512> buf{};
