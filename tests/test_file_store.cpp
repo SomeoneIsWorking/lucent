@@ -44,7 +44,7 @@ Result finish(FileStore &store) {
 }
 
 mode_t mode(const std::filesystem::path &path) {
-  struct stat information{};
+  struct stat information = {};
   require(stat(path.c_str(), &information) == 0, "Could not inspect file permissions");
   return information.st_mode & 0777;
 }
