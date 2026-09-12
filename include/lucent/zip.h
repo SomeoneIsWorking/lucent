@@ -23,6 +23,7 @@ struct ExtractionLimits {
 
 using FileMatcher = std::function<bool(const std::filesystem::path &)>;
 using ContentMatcher = std::function<bool(std::string_view, std::span<const std::uint8_t>)>;
+using ProgressCallback = std::function<void(std::uint64_t, std::uint64_t)>;
 
 // Extract every regular file from a validated archive. The returned paths are inside destination
 // and preserve their archive-relative layout. The caller supplies a fresh destination so it can
@@ -70,5 +71,16 @@ bool extract_unique_install(std::span<const std::uint8_t> archive,
 bool extract_install(const std::filesystem::path &archive, const std::filesystem::path &destination,
                      std::string_view required_name, std::filesystem::path &executable,
                      std::string &error, ExtractionLimits limits = {});
+
+// Stream a validated install into a fresh destination without renaming its directory.
+// The caller owns publication after checking the complete install. On failure the partial
+// destination is removed; a cleanup failure is reported. Progress counts bytes actually
+// written against the selected archive's declared expanded bytes, including an initial
+// (0, total) and a final (total, total) notification.
+bool extract_install_unpublished(const std::filesystem::path &archive,
+                                 const std::filesystem::path &destination,
+                                 std::string_view required_name, std::filesystem::path &executable,
+                                 std::string &error, ExtractionLimits limits = {},
+                                 const ProgressCallback &on_progress = {});
 
 } // namespace lucent::zip
