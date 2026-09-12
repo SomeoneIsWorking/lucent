@@ -9,23 +9,24 @@
 
 namespace {
 void emit_log(lucent::Level level, const char *channel, const char *fmt, va_list &args) {
-  va_list args_copy;
-  va_copy(args_copy, args);
+  va_list measure_args;
+  va_copy(measure_args, args);
   std::array<char, 512> buf{};
-  int len = std::vsnprintf(buf.data(), buf.size(), fmt, args);
+  int len = std::vsnprintf(buf.data(), buf.size(), fmt, measure_args);
+  va_end(measure_args);
   if (len < 0) {
-    va_end(args_copy);
     return;
   }
   if (static_cast<size_t>(len) < buf.size()) {
-    va_end(args_copy);
     lucent::log(level, channel != nullptr ? channel : "",
                 std::string_view(buf.data(), static_cast<size_t>(len)));
     return;
   }
   std::vector<char> dyn(static_cast<size_t>(len) + 1);
-  std::vsnprintf(dyn.data(), dyn.size(), fmt, args_copy);
-  va_end(args_copy);
+  va_list render_args;
+  va_copy(render_args, args);
+  std::vsnprintf(dyn.data(), dyn.size(), fmt, render_args);
+  va_end(render_args);
   lucent::log(level, channel != nullptr ? channel : "",
               std::string_view(dyn.data(), static_cast<size_t>(len)));
 }
