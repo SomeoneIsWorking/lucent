@@ -26,29 +26,8 @@ S007 is the current focus.
 | S011 | Linux applications select one local file asynchronously through a native GTK chooser | partial | — | G001 |
 | S012 | Linux applications read regular files asynchronously within a strict byte budget | verified | — | G001 |
 | S013 | Linux applications stage immutable binary backing files asynchronously with bounded lifetime storage | verified | S002 | G001 |
-| S014 | Browser applications stage and access files through private origin storage | partial | Emscripten pthreads, WasmFS and cross-origin isolation | G001 |
 
 ## Capability details
-
-### S014 — Browser storage
-
-The optional `lucent::web` worker mount/write/unmount/remount/read/remove test
-passed in an isolated Chromium browser through WebLua, including six invalid
-mount operations. Unmount preserves stored files and releases OPFS file handles
-on the application worker before SDK shutdown. The SDK's global backend registry
-still joins its OPFS worker on the browser main thread during runtime destruction;
-the complete consumer with assertions enabled exposed this remaining lifecycle
-gap. `FileStager` streamed an 11-byte Blob into real OPFS, reported the
-same byte count, reproduced its contents, and refused a file above its byte
-limit. A fresh origin denied the requested persistence grant; the API reports
-that result so callers can explain possible browser eviction. Large real-title
-imports, accepted-install transactions and offline relaunch remain consumer
-qualification work. ZIP extraction now uses the bounded file-reader and
-streaming entry owners described in S009; real browser import remains a
-consumer qualification rather than a result of the native ZIP tests.
-
-Gap: the SDK worker join during runtime destruction must leave the browser main thread unblocked;
-the complete consumer also needs real-title import and offline-relaunch qualification.
 
 ### S001 — Logging
 
