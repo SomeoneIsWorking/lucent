@@ -220,7 +220,7 @@ public final class LucentDocumentImport {
         if (active()) {
             return;
         }
-        File[] candidates = storageRoot.getCanonicalFile().listFiles();
+        File[] candidates = storageRoot.listFiles();
         if (candidates == null) {
             return;
         }
