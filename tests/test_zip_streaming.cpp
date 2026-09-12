@@ -94,6 +94,19 @@ void stream_fixture(unsigned method) {
         "streaming CRC rejects corrupt content");
 }
 
+void buffered_directory_fixture() {
+  const auto fixture = make_archive();
+  SpanArchive span(fixture);
+  ObservedArchive archive(span);
+  std::vector<Entry> directory;
+  Budget budget;
+  std::string error;
+  check(entries(archive, directory, {}, budget, error) && directory.size() == 3,
+        "production parser accepts the complete install directory");
+  check(archive.calls == 2 && archive.bytes < 2 * read_chunk_bytes,
+        "central metadata needs one bounded read, not per-entry seeks");
+}
+
 void large_sparse_archive() {
   const std::filesystem::path path = "zip-stream-sparse.zip";
   const std::filesystem::path destination = "zip-stream-output";
@@ -159,9 +172,11 @@ void large_sparse_archive() {
 int main() {
   stream_fixture(0);
   stream_fixture(8);
+  buffered_directory_fixture();
   large_sparse_archive();
   std::cout << "zip streaming: " << checks - failures << '/' << checks
-            << " checks passed; 64KiB read/output bound, 1.5GiB sparse archive, CRC, "
+            << " checks passed; bounded directory reads, 64KiB read/output bound, "
+               "1.5GiB sparse archive, CRC, "
                "sink failure and backing-file truncation exercised\n";
   return failures ? 1 : 0;
 }

@@ -144,6 +144,25 @@ bool entries(ArchiveReader &archive, std::vector<Entry> &out, const ExtractionLi
   }
   budget.entries += count;
 
+  // A game install can have thousands of entries. Read ordinary central
+  // directories once instead of issuing a backing-store seek for every header
+  // and name. Larger directories retain the bounded streaming path.
+  constexpr std::uint64_t buffered_directory_limit = 16ULL * 1024ULL * 1024ULL;
+  Bytes buffered_directory;
+  if (central_size <= buffered_directory_limit && central_size != 0) {
+    buffered_directory.resize(static_cast<std::size_t>(central_size));
+    if (!archive.read(central_offset, buffered_directory, error))
+      return false;
+  }
+  const auto read_directory = [&](std::uint64_t offset, std::span<std::uint8_t> output) {
+    if (buffered_directory.empty())
+      return archive.read(offset, output, error);
+    const auto start = static_cast<std::size_t>(offset - central_offset);
+    std::copy_n(buffered_directory.begin() + static_cast<std::ptrdiff_t>(start), output.size(),
+                output.begin());
+    return true;
+  };
+
   std::uint64_t offset = central_offset;
   const std::uint64_t central_end = central_offset + central_size;
   std::unordered_set<std::string> names;
@@ -154,7 +173,7 @@ bool entries(ArchiveReader &archive, std::vector<Entry> &out, const ExtractionLi
       error = "archive central directory entry is invalid";
       return false;
     }
-    if (!archive.read(offset, header, error))
+    if (!read_directory(offset, header))
       return false;
     if (u32(header, 0) != entry_signature) {
       error = "archive central directory entry is invalid";
@@ -169,7 +188,7 @@ bool entries(ArchiveReader &archive, std::vector<Entry> &out, const ExtractionLi
       return false;
     }
     Bytes name(name_size);
-    if (!archive.read(offset + 46, name, error))
+    if (!read_directory(offset + 46, name))
       return false;
     Entry entry;
     entry.name.assign(name.begin(), name.end());
