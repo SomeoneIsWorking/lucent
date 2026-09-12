@@ -11,7 +11,7 @@ Linux GTK3/GIO file selection and bounded asynchronous reading.
 Enable `LUCENT_BUILD_FILE_DIALOG=ON` before adding Lucent and link `lucent::file_dialog`.
 This requires GTK 3.20+ development headers and pkg-config (`libgtk-3-dev` on Debian/Ubuntu,
 `gtk3-devel` on Fedora). The core remains independent of GTK. This target currently supports
-Linux desktops only; Android SAF is owned by `LucentDocumentImport`, and no Windows/macOS
+Linux desktops only; Android application import and lifecycle are owned by the shared `android-port` framework, and no Windows/macOS
 picker implementation is claimed.
 
 `lucent::file_dialog::FileDialog` opens one native single-file chooser and dispatches its
@@ -200,7 +200,7 @@ macOS, and `APPDATA` on Windows. The application name is validated as one path c
 `ensure_user_data_directory` after resolution to create it with owner-only permissions where the
 platform supports them.
 
-Android shells have no environment fallback. An Activity supplies its absolute app-private root
+Android applications are consumers of the separate `android-port` framework. Native Lucent APIs have no Android environment fallback; an Activity supplies its absolute user-data root
 through `lucent_platform_set_user_data_directory()` from `platform_c.h`; the C wrappers are for
 applications whose entry point is written in C. Lucent does not own document pickers, URI copying,
 or application-specific install validation.

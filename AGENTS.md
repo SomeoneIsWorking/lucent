@@ -18,7 +18,7 @@ Optional Linux `lucent::file_dialog` adds GTK3/GIO without changing core depende
   Android/SDL3 shells own event acquisition, safe-area layout, and conversion from zone IDs to game
   actions; do not put title-specific controls in Lucent.
 - `platform` owns portable per-application user-data directory resolution and private directory
-  creation. Its Android shell provides the app-private root through the C ABI and owns persisted SAF
+  creation. Its Android consumer provides the app-private root through the C ABI; the separate shared android-port framework owns persisted SAF
   read grants plus bounded private staging and promotion; consumers own setup wording, install
   validation, archive policy, and the decision to promote after validation.
 - `content` owns dependency-free streaming content digests. Consumers own the expected identity and
