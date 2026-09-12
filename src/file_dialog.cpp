@@ -14,7 +14,9 @@ struct FileDialog::Impl {
   Completion completion;
   std::optional<Result> result;
 
-  ~Impl() { close(); }
+  ~Impl() {
+    close();
+  }
 
   void release_dialog() noexcept {
     if (dialog != nullptr) {

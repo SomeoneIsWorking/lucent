@@ -4,6 +4,8 @@
 extern "C" {
 #endif
 
+// C's portable enum representation is implementation-defined; keep the established ABI.
+// NOLINTNEXTLINE(performance-enum-size)
 typedef enum {
   LUCENT_LOG_DEBUG = 0,
   LUCENT_LOG_INFO,

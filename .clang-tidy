@@ -1,13 +1,11 @@
 Checks: >
-  -*,
-  bugprone-dangling-handle,
-  bugprone-misplaced-widening-cast,
-  bugprone-unchecked-optional-access,
-  bugprone-use-after-move,
+  bugprone-*,
   clang-analyzer-*,
-  modernize-use-nullptr,
   performance-*,
-  readability-container-size-empty
+  readability-braces-around-statements
 WarningsAsErrors: '*'
-HeaderFilterRegex: '^(include|src|tests)/'
+HeaderFilterRegex: '.*[/\\](include|src|tests)[/\\].*'
 FormatStyle: file
+CheckOptions:
+  - key: readability-braces-around-statements.ShortStatementLines
+    value: '0'

@@ -71,6 +71,8 @@
 
 namespace lucent {
 
+// Preserve the public log-level ABI across existing binary consumers.
+// NOLINTNEXTLINE(performance-enum-size)
 enum class Level { Debug, Info, Warn, Error };
 
 // ── Channel: a name resolved once, for hot call sites ───────────────────────────────────────────
@@ -79,7 +81,7 @@ enum class Level { Debug, Info, Warn, Error };
 // resolves the name once and caches the answer next to a stamp of the enabled-channel set, so the
 // steady-state gate is a load, a compare and a branch:
 //
-//     static const lucent::Channel ch{"otattr"};   // constant-initialised; no guard variable
+//     lucent::Channel channel_{"otattr"};  // member of the owning class
 //     if (ch) { ...work you only do when diagnosing... }
 //     lucent::debug(ch, "store {:08X}", addr);
 //
@@ -97,20 +99,26 @@ extern std::atomic<std::uint64_t> g_channel_generation;
 
 class Channel {
 public:
-  constexpr explicit Channel(std::string_view name) : name_(name) {}
+  constexpr explicit Channel(std::string_view name) : name_(name) {
+  }
   Channel(const Channel &) = delete;
   Channel &operator=(const Channel &) = delete;
 
-  constexpr std::string_view name() const { return name_; }
+  constexpr std::string_view name() const {
+    return name_;
+  }
 
   // True while this channel is emitting. One relaxed load of the global generation, one relaxed
   // load of the cached word, one compare.
-  explicit operator bool() const { return enabled(); }
+  explicit operator bool() const {
+    return enabled();
+  }
   bool enabled() const {
     const std::uint64_t gen = detail::g_channel_generation.load(std::memory_order_relaxed);
     const std::uint64_t cached = state_.load(std::memory_order_relaxed);
-    if ((cached >> 1) == gen)
+    if ((cached >> 1) == gen) {
       return (cached & 1u) != 0;
+    }
     return resolve();
   }
 
@@ -187,8 +195,9 @@ void error(std::string_view channel, detail::FormatString<Args...> fmt, Args &&.
 // Channel-gated. The format arguments are NOT evaluated when the channel is off.
 template <class... Args>
 void debug(std::string_view channel, detail::FormatString<Args...> fmt, Args &&...args) {
-  if (!detail::channel_enabled(channel))
+  if (!detail::channel_enabled(channel)) {
     return;
+  }
   log(Level::Debug, channel, detail::format(fmt, std::forward<Args>(args)...));
 }
 
@@ -208,8 +217,9 @@ void error(const Channel &channel, detail::FormatString<Args...> fmt, Args &&...
 }
 template <class... Args>
 void debug(const Channel &channel, detail::FormatString<Args...> fmt, Args &&...args) {
-  if (!channel.enabled())
+  if (!channel.enabled()) {
     return;
+  }
   log(Level::Debug, channel.name(), detail::format(fmt, std::forward<Args>(args)...));
 }
 #endif
@@ -253,8 +263,12 @@ public:
   void flush_debug(std::string_view channel);
   void flush_debug(const Channel &channel);
 
-  bool empty() const { return text_.empty(); }
-  std::string_view view() const { return text_; }
+  bool empty() const {
+    return text_.empty();
+  }
+  std::string_view view() const {
+    return text_;
+  }
   void clear() {
     text_.clear();
     truncated_ = false;

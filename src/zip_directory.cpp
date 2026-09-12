@@ -29,25 +29,29 @@ bool equal_name(std::string_view left, std::string_view right) {
 
 bool safe_name(std::string_view name) {
   if (name.empty() || name.front() == '/' || name.find('\\') != std::string_view::npos ||
-      name.find('\0') != std::string_view::npos)
+      name.find('\0') != std::string_view::npos) {
     return false;
+  }
   std::size_t start = 0;
   while (start < name.size()) {
     const std::size_t end = name.find('/', start);
     const std::string_view part =
         name.substr(start, end == std::string_view::npos ? name.size() - start : end - start);
     if (part.empty() || part == "." || part == ".." || part.find(':') != std::string_view::npos ||
-        part.back() == '.' || part.back() == ' ')
+        part.back() == '.' || part.back() == ' ') {
       return false;
+    }
     const std::size_t extension = part.find('.');
     std::string stem = lucent::text::ascii_lower(part.substr(0, extension));
     const bool numbered_device = stem.size() == 4 &&
                                  (stem.starts_with("com") || stem.starts_with("lpt")) &&
                                  stem[3] >= '1' && stem[3] <= '9';
-    if (stem == "con" || stem == "prn" || stem == "aux" || stem == "nul" || numbered_device)
+    if (stem == "con" || stem == "prn" || stem == "aux" || stem == "nul" || numbered_device) {
       return false;
-    if (end == std::string_view::npos)
+    }
+    if (end == std::string_view::npos) {
       break;
+    }
     start = end + 1;
   }
   return name.back() != '/';
@@ -73,8 +77,9 @@ bool reserve_budget(std::uint64_t amount, std::uint64_t limit, std::uint64_t &us
 bool validate_file_directory_shapes(const std::vector<Entry> &archive_entries, std::string &error) {
   std::unordered_set<std::string> files;
   for (const Entry &entry : archive_entries) {
-    if (entry.name.back() != '/')
+    if (entry.name.back() != '/') {
       files.insert(normalized_name(entry.name));
+    }
   }
   for (const std::string &file : files) {
     std::size_t separator = file.find('/');
@@ -92,8 +97,9 @@ bool validate_file_directory_shapes(const std::vector<Entry> &archive_entries, s
 bool entries(ArchiveReader &archive, std::vector<Entry> &out, const ExtractionLimits &limits,
              Budget &budget, std::string &error) {
   if (!reserve_budget(archive.size(), limits.max_archive_bytes, budget.archive_bytes,
-                      "archives exceed the combined compressed byte limit", error))
+                      "archives exceed the combined compressed byte limit", error)) {
     return false;
+  }
 
   constexpr std::uint32_t end_signature = 0x06054b50;
   constexpr std::uint32_t entry_signature = 0x02014b50;
@@ -101,8 +107,9 @@ bool entries(ArchiveReader &archive, std::vector<Entry> &out, const ExtractionLi
       static_cast<std::size_t>(std::min<std::uint64_t>(archive.size(), 22 + 0xffff));
   const std::uint64_t tail_offset = archive.size() - tail_size;
   Bytes tail(tail_size);
-  if (!archive.read(tail_offset, tail, error))
+  if (!archive.read(tail_offset, tail, error)) {
     return false;
+  }
   ByteView bytes{tail};
   std::size_t end = std::string::npos;
   for (std::size_t offset = bytes.size(); offset-- > 0;) {
@@ -151,12 +158,14 @@ bool entries(ArchiveReader &archive, std::vector<Entry> &out, const ExtractionLi
   Bytes buffered_directory;
   if (central_size <= buffered_directory_limit && central_size != 0) {
     buffered_directory.resize(static_cast<std::size_t>(central_size));
-    if (!archive.read(central_offset, buffered_directory, error))
+    if (!archive.read(central_offset, buffered_directory, error)) {
       return false;
+    }
   }
   const auto read_directory = [&](std::uint64_t offset, std::span<std::uint8_t> output) {
-    if (buffered_directory.empty())
+    if (buffered_directory.empty()) {
       return archive.read(offset, output, error);
+    }
     const auto start = static_cast<std::size_t>(offset - central_offset);
     std::copy_n(buffered_directory.begin() + static_cast<std::ptrdiff_t>(start), output.size(),
                 output.begin());
@@ -173,8 +182,9 @@ bool entries(ArchiveReader &archive, std::vector<Entry> &out, const ExtractionLi
       error = "archive central directory entry is invalid";
       return false;
     }
-    if (!read_directory(offset, header))
+    if (!read_directory(offset, header)) {
       return false;
+    }
     if (u32(header, 0) != entry_signature) {
       error = "archive central directory entry is invalid";
       return false;
@@ -188,8 +198,9 @@ bool entries(ArchiveReader &archive, std::vector<Entry> &out, const ExtractionLi
       return false;
     }
     Bytes name(name_size);
-    if (!read_directory(offset + 46, name))
+    if (!read_directory(offset + 46, name)) {
       return false;
+    }
     Entry entry;
     entry.name.assign(name.begin(), name.end());
     entry.flags = u16(header, 8);
@@ -210,8 +221,9 @@ bool entries(ArchiveReader &archive, std::vector<Entry> &out, const ExtractionLi
     }
     if (!reserve_budget(entry.uncompressed_size, limits.max_extracted_bytes, budget.extracted_bytes,
                         "archive exceeds the total expanded byte limit across archive levels",
-                        error))
+                        error)) {
       return false;
+    }
     const bool directory = !entry.name.empty() && entry.name.back() == '/';
     const std::string_view checked_name =
         directory ? std::string_view(entry.name).substr(0, entry.name.size() - 1)
@@ -241,8 +253,9 @@ bool local_data_offset(ArchiveReader &archive, const Entry &entry, std::uint64_t
     error = "archive local entry is invalid";
     return false;
   }
-  if (!archive.read(entry.local_offset, header, error))
+  if (!archive.read(entry.local_offset, header, error)) {
     return false;
+  }
   if (u32(header, 0) != 0x04034b50) {
     error = "archive local entry is invalid";
     return false;
@@ -257,8 +270,9 @@ bool local_data_offset(ArchiveReader &archive, const Entry &entry, std::uint64_t
     return false;
   }
   Bytes name(name_size);
-  if (!archive.read(name_offset, name, error))
+  if (!archive.read(name_offset, name, error)) {
     return false;
+  }
   const bool descriptor = (entry.flags & 8U) != 0;
   const auto agrees_or_descriptor_zero = [descriptor](std::uint32_t local, std::uint32_t central) {
     return local == central || (descriptor && local == 0);

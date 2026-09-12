@@ -15,11 +15,16 @@ namespace lucent::file_store::detail {
 namespace {
 class Descriptor {
 public:
-  explicit Descriptor(int value) : value_(value) {}
-  ~Descriptor() { close(); }
+  explicit Descriptor(int value) : value_(value) {
+  }
+  ~Descriptor() {
+    close();
+  }
   Descriptor(const Descriptor &) = delete;
   Descriptor &operator=(const Descriptor &) = delete;
-  [[nodiscard]] int get() const noexcept { return value_; }
+  [[nodiscard]] int get() const noexcept {
+    return value_;
+  }
   int close() noexcept {
     const int value = std::exchange(value_, -1);
     return value >= 0 ? ::close(value) : 0;

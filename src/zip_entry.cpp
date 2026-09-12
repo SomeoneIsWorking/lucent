@@ -8,7 +8,8 @@ namespace lucent::zip::detail {
 namespace {
 class EntryOutput {
 public:
-  EntryOutput(const Entry &entry, const EntrySink &sink) : entry_(entry), sink_(sink) {}
+  EntryOutput(const Entry &entry, const EntrySink &sink) : entry_(entry), sink_(sink) {
+  }
   bool append(ByteView bytes, std::string &error) {
     if (bytes.size() > entry_.uncompressed_size - written_) {
       error = "archive entry exceeded its declared expanded size";
@@ -43,15 +44,21 @@ private:
 
 class Inflater {
 public:
-  Inflater() : ready_(inflateInit2(&stream_, -MAX_WBITS) == Z_OK) {}
+  Inflater() : ready_(inflateInit2(&stream_, -MAX_WBITS) == Z_OK) {
+  }
   ~Inflater() {
-    if (ready_)
+    if (ready_) {
       inflateEnd(&stream_);
+    }
   }
   Inflater(const Inflater &) = delete;
   Inflater &operator=(const Inflater &) = delete;
-  bool ready() const { return ready_; }
-  z_stream &stream() { return stream_; }
+  bool ready() const {
+    return ready_;
+  }
+  z_stream &stream() {
+    return stream_;
+  }
 
 private:
   z_stream stream_{};
@@ -72,8 +79,9 @@ bool inflate_entry(ArchiveReader &archive, std::uint64_t offset, const Entry &en
     if (stream.avail_in == 0 && read < entry.compressed_size) {
       const auto count = static_cast<std::size_t>(
           std::min<std::uint64_t>(input.size(), entry.compressed_size - read));
-      if (!archive.read(offset + read, std::span{input}.first(count), error))
+      if (!archive.read(offset + read, std::span{input}.first(count), error)) {
         return false;
+      }
       read += count;
       stream.next_in = input.data();
       stream.avail_in = static_cast<uInt>(count);
@@ -83,11 +91,13 @@ bool inflate_entry(ArchiveReader &archive, std::uint64_t offset, const Entry &en
     const uLong before = stream.total_in;
     const int result = inflate(&stream, Z_NO_FLUSH);
     const std::size_t produced = expanded.size() - stream.avail_out;
-    if (!output.append(std::span{expanded}.first(produced), error))
+    if (!output.append(std::span{expanded}.first(produced), error)) {
       return false;
+    }
     if (result == Z_STREAM_END) {
-      if (stream.total_in == entry.compressed_size)
+      if (stream.total_in == entry.compressed_size) {
         return output.complete(error);
+      }
       error = "archive entry has trailing compressed bytes";
       return false;
     }
@@ -106,11 +116,13 @@ bool stream_entry(ArchiveReader &archive, const Entry &entry, const EntrySink &s
     return false;
   }
   std::uint64_t offset = 0;
-  if (!local_data_offset(archive, entry, offset, error))
+  if (!local_data_offset(archive, entry, offset, error)) {
     return false;
+  }
   EntryOutput output(entry, sink);
-  if (entry.method == 8)
+  if (entry.method == 8) {
     return inflate_entry(archive, offset, entry, output, error);
+  }
   if (entry.compressed_size != entry.uncompressed_size) {
     error = "stored archive entry has inconsistent sizes";
     return false;
@@ -121,8 +133,9 @@ bool stream_entry(ArchiveReader &archive, const Entry &entry, const EntrySink &s
     const auto count = static_cast<std::size_t>(
         std::min<std::uint64_t>(buffer.size(), entry.compressed_size - read));
     const auto chunk = std::span{buffer}.first(count);
-    if (!archive.read(offset + read, chunk, error) || !output.append(chunk, error))
+    if (!archive.read(offset + read, chunk, error) || !output.append(chunk, error)) {
       return false;
+    }
     read += count;
   }
   return output.complete(error);

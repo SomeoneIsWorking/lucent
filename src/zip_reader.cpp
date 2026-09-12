@@ -14,8 +14,9 @@ bool ArchiveReader::read(std::uint64_t offset, std::span<std::uint8_t> output, s
   }
   while (!output.empty()) {
     const auto chunk = output.first(std::min(output.size(), read_chunk_bytes));
-    if (!read_chunk(offset, chunk, error))
+    if (!read_chunk(offset, chunk, error)) {
       return false;
+    }
     offset += chunk.size();
     output = output.subspan(chunk.size());
   }
@@ -24,8 +25,9 @@ bool ArchiveReader::read(std::uint64_t offset, std::span<std::uint8_t> output, s
 
 bool FileArchive::open(const std::filesystem::path &path, const ExtractionLimits &limits,
                        std::string &error) {
-  if (file_.is_open())
+  if (file_.is_open()) {
     file_.close();
+  }
   file_.clear();
   size_ = 0;
   file_.open(path, std::ios::binary | std::ios::ate);

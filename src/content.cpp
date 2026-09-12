@@ -124,13 +124,14 @@ std::optional<Sha256> sha256_file(const std::filesystem::path &path, std::string
     return std::nullopt;
   }
   Sha256State state;
-  std::array<std::byte, 64 * 1024> buffer{};
+  std::array<std::byte, std::size_t{64} * 1024> buffer{};
   while (input) {
     input.read(reinterpret_cast<char *>(buffer.data()),
                static_cast<std::streamsize>(buffer.size()));
     const auto count = input.gcount();
-    if (count > 0)
+    if (count > 0) {
       state.update(std::span(buffer.data(), static_cast<std::size_t>(count)));
+    }
   }
   if (!input.eof()) {
     error = "cannot read file for SHA-256: " + path.string();
@@ -143,8 +144,9 @@ std::optional<Sha256> sha256_file(const std::filesystem::path &path, std::string
 std::string sha256_hex(const Sha256 &digest) {
   std::ostringstream output;
   output << std::hex << std::setfill('0');
-  for (const std::uint8_t byte : digest)
+  for (const std::uint8_t byte : digest) {
     output << std::setw(2) << static_cast<unsigned>(byte);
+  }
   return output.str();
 }
 

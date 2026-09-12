@@ -48,9 +48,15 @@ public:
   VarBase &operator=(const VarBase &) = delete;
   virtual ~VarBase();
 
-  [[nodiscard]] const std::string &name() const noexcept { return name_; }
-  [[nodiscard]] Layer layer() const noexcept { return layer_; }
-  [[nodiscard]] bool registered() const noexcept { return registered_; }
+  [[nodiscard]] const std::string &name() const noexcept {
+    return name_;
+  }
+  [[nodiscard]] Layer layer() const noexcept {
+    return layer_;
+  }
+  [[nodiscard]] bool registered() const noexcept {
+    return registered_;
+  }
 
   // Parse `text` and apply it at the named layer. A parse failure is reported
   // to stderr and leaves the CVar unchanged — a bad line in a config file must
@@ -94,7 +100,8 @@ template <class T> class Var final : public VarBase {
 public:
   explicit Var(std::string name, T default_value = T{})
       : VarBase(std::move(name)), default_(std::move(default_value)), value_(default_),
-        override_(default_) {}
+        override_(default_) {
+  }
 
   // Not guaranteed to stay current across a later mutation, but always sound.
   [[nodiscard]] const T &get() const noexcept {
@@ -108,15 +115,20 @@ public:
     }
     return default_;
   }
-  operator const T &() const noexcept { return get(); }
-  [[nodiscard]] const T &default_value() const noexcept { return default_; }
+  operator const T &() const noexcept {
+    return get();
+  }
+  [[nodiscard]] const T &default_value() const noexcept {
+    return default_;
+  }
 
   // Runtime change by the program (a settings screen). Stored at the Value
   // layer; save_file() will persist it. Does not disturb an active Override.
   void set(T v) {
     value_ = std::move(v);
-    if (layer_ != Layer::Override)
+    if (layer_ != Layer::Override) {
       layer_ = Layer::Value;
+    }
   }
 
   void apply(std::string_view text, Layer at) override {
@@ -130,8 +142,9 @@ public:
       layer_ = Layer::Override;
     } else {
       value_ = std::move(parsed);
-      if (layer_ != Layer::Override)
+      if (layer_ != Layer::Override) {
         layer_ = Layer::Value;
+      }
     }
   }
 

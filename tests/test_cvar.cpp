@@ -3,7 +3,6 @@
 #include "lucent/cvar_c.h"
 #include "test_environment.h"
 
-#include <cassert>
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
@@ -25,6 +24,15 @@ using lucent::cvar::Var;
 namespace {
 
 int g_temp_counter = 0;
+
+void check(bool condition, const char *expression, int line) {
+  if (!condition) {
+    std::cerr << "FAIL " << __FILE__ << ':' << line << "  " << expression << '\n';
+    std::exit(EXIT_FAILURE);
+  }
+}
+
+#define CHECK(expression) check((expression), #expression, __LINE__)
 
 std::string write_temp(const std::string &body) {
 #ifdef _WIN32
@@ -51,10 +59,10 @@ void defaults_stand_when_nothing_is_configured() {
   lucent::cvar::register_var(engine);
   lucent::cvar::register_var(cache);
   lucent::cvar::register_var(budget);
-  assert(engine.get() == "jit");
-  assert(cache.get() == true);
-  assert(budget.get() == 100000);
-  assert(engine.layer() == Layer::Default);
+  CHECK(engine.get() == "jit");
+  CHECK(cache.get() == true);
+  CHECK(budget.get() == 100000);
+  CHECK(engine.layer() == Layer::Default);
 }
 
 void file_beats_default_env_beats_file_arg_beats_env() {
@@ -67,22 +75,22 @@ void file_beats_default_env_beats_file_arg_beats_env() {
   // File-only so far.
   Var<std::string> engine{"engine", "jit"};
   lucent::cvar::register_var(engine);
-  assert(engine.get() == "interpreter");
-  assert(engine.layer() == Layer::Value);
+  CHECK(engine.get() == "interpreter");
+  CHECK(engine.layer() == Layer::Value);
 
   // Environment outranks the file.
-  assert(lucent::test::set_environment("X2_JIT_CACHE", "on"));
+  CHECK(lucent::test::set_environment("X2_JIT_CACHE", "on"));
   lucent::config::reset_cache();
   Var<bool> cache{"jit.cache", true};
   lucent::cvar::register_var(cache);
-  assert(cache.get() == true);
-  assert(cache.layer() == Layer::Override);
+  CHECK(cache.get() == true);
+  CHECK(cache.layer() == Layer::Override);
 
   // An explicit --set outranks the environment.
   lucent::cvar::set_arg("jit.cache", "off");
-  assert(cache.get() == false);
+  CHECK(cache.get() == false);
 
-  assert(lucent::test::unset_environment("X2_JIT_CACHE"));
+  CHECK(lucent::test::unset_environment("X2_JIT_CACHE"));
   std::remove(path.c_str());
 }
 
@@ -91,7 +99,7 @@ void set_arg_before_register_is_stashed_and_applied() {
   lucent::cvar::set_arg("jit.verify", "on");
   Var<bool> verify{"jit.verify", false};
   lucent::cvar::register_var(verify);
-  assert(verify.get() == true);
+  CHECK(verify.get() == true);
 }
 
 void c_abi_reads_effective_value_and_aborts_on_unknown(const char *executable) {
@@ -100,16 +108,16 @@ void c_abi_reads_effective_value_and_aborts_on_unknown(const char *executable) {
   Var<bool> cache{"jit.cache", true};
   lucent::cvar::register_var(engine);
   lucent::cvar::register_var(cache);
-  assert(std::string(lucent_cvar_text("engine")) == "jit");
-  assert(lucent_cvar_flag("jit.cache", 0) == 1);
+  CHECK(std::string(lucent_cvar_text("engine")) == "jit");
+  CHECK(lucent_cvar_flag("jit.cache", 0) == 1);
   cache.set(false);
-  assert(lucent_cvar_flag("jit.cache", 1) == 0);
+  CHECK(lucent_cvar_flag("jit.cache", 1) == 0);
 
   // Unknown name must abort, not return the fallback.
 #ifdef _WIN32
   std::intptr_t status = _spawnl(_P_WAIT, executable, executable, "--abort-unknown-cvar",
                                  static_cast<const char *>(nullptr));
-  assert(status == 3);
+  CHECK(status == 3);
 #else
   (void)executable;
   if (fork() == 0) {
@@ -119,7 +127,7 @@ void c_abi_reads_effective_value_and_aborts_on_unknown(const char *executable) {
   }
   int status = 0;
   wait(&status);
-  assert(WIFSIGNALED(status));
+  CHECK(WIFSIGNALED(status));
 #endif
 }
 
@@ -132,10 +140,10 @@ void save_round_trips_and_preserves_unknown_keys() {
   lucent::cvar::register_var(engine);
   engine.set("substrate");
 
-  assert(lucent::cvar::save_file(path.c_str()));
+  CHECK(lucent::cvar::save_file(path.c_str()));
   const std::string body = read_file(path);
-  assert(body.find("engine = substrate") != std::string::npos);
-  assert(body.find("future.knob = 7") != std::string::npos); // not dropped
+  CHECK(body.find("engine = substrate") != std::string::npos);
+  CHECK(body.find("future.knob = 7") != std::string::npos); // not dropped
   std::remove(path.c_str());
 }
 
@@ -149,7 +157,7 @@ void unregister_keeps_value_for_save_and_later_register() {
   }
   Var<long> budget2{"jit.budget", 100};
   lucent::cvar::register_var(budget2);
-  assert(budget2.get() == 42);
+  CHECK(budget2.get() == 42);
 }
 
 void enumerate_sees_every_registered_var() {
@@ -159,8 +167,10 @@ void enumerate_sees_every_registered_var() {
   lucent::cvar::register_var(a);
   lucent::cvar::register_var(b);
   int count = 0;
-  lucent::cvar::enumerate([&](lucent::cvar::VarBase &) { ++count; });
-  assert(count == 2);
+  lucent::cvar::enumerate([&](lucent::cvar::VarBase &) {
+    ++count;
+  });
+  CHECK(count == 2);
 }
 
 } // namespace

@@ -28,7 +28,9 @@ struct FileRead::State : std::enable_shared_from_this<State> {
   }
 
   // Each GIO operation retains only this state, never FileRead or a consumer callback.
-  gpointer retain() { return new std::shared_ptr<State>(shared_from_this()); }
+  gpointer retain() {
+    return new std::shared_ptr<State>(shared_from_this());
+  }
   static std::shared_ptr<State> take(gpointer data) {
     std::unique_ptr<std::shared_ptr<State>> retained(static_cast<std::shared_ptr<State> *>(data));
     return std::move(*retained);
@@ -56,9 +58,10 @@ struct FileRead::State : std::enable_shared_from_this<State> {
       return;
     }
     GError *error = nullptr;
-    GInputStream *stream =
-        detail::open_regular_file(state->path.c_str(), state->limit, &error,
-                                  [](const char *path, int flags) { return ::open(path, flags); });
+    GInputStream *stream = detail::open_regular_file(state->path.c_str(), state->limit, &error,
+                                                     [](const char *path, int flags) {
+                                                       return ::open(path, flags);
+                                                     });
     if (error != nullptr) {
       g_task_return_error(task, error);
     } else {
@@ -132,8 +135,9 @@ void FileRead::start(const std::filesystem::path &path, std::size_t max_bytes) {
   state_->path = native_path;
   GTask *task = g_task_new(nullptr, state_->cancellable, State::opened, state_->retain());
   g_task_set_task_data(
-      task, state_->retain(),
-      +[](gpointer data) { delete static_cast<std::shared_ptr<State> *>(data); });
+      task, state_->retain(), +[](gpointer data) {
+        delete static_cast<std::shared_ptr<State> *>(data);
+      });
   g_task_run_in_thread(task, State::open_worker);
   g_object_unref(task);
 }
