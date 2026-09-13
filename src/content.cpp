@@ -2,6 +2,7 @@
 
 #include <algorithm>
 #include <array>
+#include <vector>
 #include <bit>
 #include <fstream>
 #include <iomanip>
@@ -28,8 +29,8 @@ public:
   void update(std::span<const std::byte> bytes) {
     total_bytes_ += bytes.size();
     while (!bytes.empty()) {
-      const std::size_t count = std::min(bytes.size(), block_.size() - block_size_);
-      std::copy_n(bytes.begin(), count, block_.begin() + block_size_);
+      std::size_t count = std::min(bytes.size(), block_.size() - block_size_);
+      std::copy_n(bytes.begin(), count, block_.data() + block_size_);
       block_size_ += count;
       bytes = bytes.subspan(count);
       if (block_size_ == block_.size()) {
@@ -40,14 +41,14 @@ public:
   }
 
   Sha256 finish() {
-    const std::uint64_t bit_count = total_bytes_ * 8U;
+    std::uint64_t bit_count = total_bytes_ * 8U;
     block_[block_size_++] = std::byte{0x80};
     if (block_size_ > 56) {
-      std::fill(block_.begin() + block_size_, block_.end(), std::byte{0});
+      std::fill(block_.data() + block_size_, block_.data() + block_.size(), std::byte{0});
       transform(block_);
       block_size_ = 0;
     }
-    std::fill(block_.begin() + block_size_, block_.begin() + 56, std::byte{0});
+    std::fill(block_.data() + block_size_, block_.data() + 56, std::byte{0});
     for (std::size_t index = 0; index < 8; ++index) {
       block_[63 - index] = std::byte((bit_count >> (index * 8U)) & 0xffU);
     }
@@ -66,32 +67,31 @@ private:
   void transform(const std::array<std::byte, 64> &block) {
     std::array<std::uint32_t, 64> words{};
     for (std::size_t index = 0; index < 16; ++index) {
-      const std::size_t offset = index * 4;
+      std::size_t offset = index * 4;
       words[index] = (std::to_integer<std::uint32_t>(block[offset]) << 24U) |
                      (std::to_integer<std::uint32_t>(block[offset + 1]) << 16U) |
                      (std::to_integer<std::uint32_t>(block[offset + 2]) << 8U) |
                      std::to_integer<std::uint32_t>(block[offset + 3]);
     }
     for (std::size_t index = 16; index < words.size(); ++index) {
-      const std::uint32_t s0 = std::rotr(words[index - 15], 7) ^ std::rotr(words[index - 15], 18) ^
-                               (words[index - 15] >> 3U);
-      const std::uint32_t s1 = std::rotr(words[index - 2], 17) ^ std::rotr(words[index - 2], 19) ^
-                               (words[index - 2] >> 10U);
+      std::uint32_t s0 = std::rotr(words[index - 15], 7) ^ std::rotr(words[index - 15], 18) ^
+                         (words[index - 15] >> 3U);
+      std::uint32_t s1 = std::rotr(words[index - 2], 17) ^ std::rotr(words[index - 2], 19) ^
+                         (words[index - 2] >> 10U);
       words[index] = words[index - 16] + s0 + words[index - 7] + s1;
     }
 
     auto working = state_;
     for (std::size_t index = 0; index < words.size(); ++index) {
-      const std::uint32_t sum1 =
+      std::uint32_t sum1 =
           std::rotr(working[4], 6) ^ std::rotr(working[4], 11) ^ std::rotr(working[4], 25);
-      const std::uint32_t choice = (working[4] & working[5]) ^ (~working[4] & working[6]);
-      const std::uint32_t temporary1 =
-          working[7] + sum1 + choice + round_constants[index] + words[index];
-      const std::uint32_t sum0 =
+      std::uint32_t choice = (working[4] & working[5]) ^ (~working[4] & working[6]);
+      std::uint32_t temporary1 = working[7] + sum1 + choice + round_constants[index] + words[index];
+      std::uint32_t sum0 =
           std::rotr(working[0], 2) ^ std::rotr(working[0], 13) ^ std::rotr(working[0], 22);
-      const std::uint32_t majority =
+      std::uint32_t majority =
           (working[0] & working[1]) ^ (working[0] & working[2]) ^ (working[1] & working[2]);
-      const std::uint32_t temporary2 = sum0 + majority;
+      std::uint32_t temporary2 = sum0 + majority;
       working = {temporary1 + temporary2, working[0], working[1], working[2],
                  working[3] + temporary1, working[4], working[5], working[6]};
     }
@@ -124,11 +124,14 @@ std::optional<Sha256> sha256_file(const std::filesystem::path &path, std::string
     return std::nullopt;
   }
   Sha256State state;
-  std::array<std::byte, std::size_t{64} * 1024> buffer{};
+  // The read buffer belongs on the heap: a hashing helper is called from
+  // whatever stack the caller happens to be on, and a browser build gives a
+  // thread only 64 KB of it, which this buffer alone would exhaust.
+  std::vector<std::byte> buffer(std::size_t{64} * 1024);
   while (input) {
     input.read(reinterpret_cast<char *>(buffer.data()),
                static_cast<std::streamsize>(buffer.size()));
-    const auto count = input.gcount();
+    auto count = input.gcount();
     if (count > 0) {
       state.update(std::span(buffer.data(), static_cast<std::size_t>(count)));
     }
@@ -144,7 +147,7 @@ std::optional<Sha256> sha256_file(const std::filesystem::path &path, std::string
 std::string sha256_hex(const Sha256 &digest) {
   std::ostringstream output;
   output << std::hex << std::setfill('0');
-  for (const std::uint8_t byte : digest) {
+  for (std::uint8_t byte : digest) {
     output << std::setw(2) << static_cast<unsigned>(byte);
   }
   return output.str();
