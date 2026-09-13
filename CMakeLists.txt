@@ -25,6 +25,7 @@ add_library(lucent STATIC
   src/log_c.cpp
   src/platform.cpp
   src/touch.cpp
+  src/version.cpp
 )
 add_library(lucent::lucent ALIAS lucent)
 
@@ -154,6 +155,10 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     target_link_libraries(lucent_cvar_tests PRIVATE lucent)
     add_test(NAME lucent_cvar_tests COMMAND lucent_cvar_tests)
     set_tests_properties(lucent_cvar_tests PROPERTIES TIMEOUT 30)
+
+    add_executable(lucent_version_tests tests/test_version.cpp)
+    target_link_libraries(lucent_version_tests PRIVATE lucent)
+    add_test(NAME lucent_version_tests COMMAND lucent_version_tests)
 
     add_executable(lucent_content_tests tests/test_content.cpp)
     target_link_libraries(lucent_content_tests PRIVATE lucent)
