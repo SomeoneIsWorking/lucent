@@ -78,6 +78,11 @@ target_link_libraries(lucent PUBLIC Threads::Threads)
 if(WIN32)
   target_link_libraries(lucent PUBLIC ws2_32)
 endif()
+if(ANDROID)
+  # liblog: the default sink writes through __android_log_write, because an app's
+  # stderr goes nowhere on a device.
+  target_link_libraries(lucent PUBLIC log)
+endif()
 if(LUCENT_FORMAT_BACKEND STREQUAL "fmt")
   target_link_libraries(lucent PUBLIC fmt::fmt)
   target_compile_definitions(lucent PUBLIC LUCENT_USE_FMT=1 LUCENT_DISABLE_STD_FORMAT=1)

@@ -11,6 +11,10 @@
 #include <unordered_set>
 #include <vector>
 
+#if defined(__ANDROID__)
+#include <android/log.h>
+#endif
+
 namespace lucent {
 
 // Starts at 1, not 0: a Channel's packed cache word is value-initialised to 0, i.e. "generation 0,
@@ -201,6 +205,26 @@ std::FILE *stream_locked() {
   return state().stream;
 }
 
+#if defined(__ANDROID__)
+// Android throws away an app's stdout and stderr unless a system property redirects them, so the
+// default stream sink is silent on a device. logcat is the platform's log and it wants the pieces
+// rather than one formatted line: a priority it can filter on and a tag it can group by. An
+// installed sink and LUCENT_LOG_FILE still win -- those are explicit choices -- so this is the
+// default path only.
+int android_priority(Level level) {
+  switch (level) {
+  case Level::Debug:
+    return ANDROID_LOG_DEBUG;
+  case Level::Warn:
+    return ANDROID_LOG_WARN;
+  case Level::Error:
+    return ANDROID_LOG_ERROR;
+  default:
+    return ANDROID_LOG_INFO;
+  }
+}
+#endif
+
 // Warnings and errors suffix the channel so they stay greppable without a separate stream or an
 // extra column: "[cd] ok" / "[cd:warn] odd" / "[cd:error] failed".
 std::string tag_for(Level level, std::string_view channel) {
@@ -276,6 +300,14 @@ void log(Level level, std::string_view channel, std::string_view message) {
     state().sink(level, line);
     return;
   }
+#if defined(__ANDROID__)
+  if (config::log_file_path().empty()) {
+    // logcat stamps and tags the entry itself, so it gets the body, not the composed line.
+    __android_log_write(android_priority(level), std::string(channel).c_str(),
+                        std::string(body).c_str());
+    return;
+  }
+#endif
   std::FILE *out = stream_locked();
   std::fwrite(line.data(), 1, line.size(), out);
   std::fputc('\n', out);
