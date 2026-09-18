@@ -53,6 +53,15 @@
 #include <format>
 #if defined(__cpp_lib_format)
 #define LUCENT_HAS_STD_FORMAT 1
+// libc++ has shipped a working std::format since LLVM 17, but withholds
+// __cpp_lib_format until every <chrono> and <ranges> formatter is finished.
+// Measured: the NDK 28 sysroot (libc++ 19) advertises only
+// __cpp_lib_format_uchar, yet compiles std::format over strings, integers and
+// floating point -- which is all Lucent asks of it. Ask the library, not the
+// macro it is still holding back, or every libc++ consumer silently loses the
+// formatted API and fails at the call site with "no member named 'info'".
+#elif defined(_LIBCPP_VERSION) && _LIBCPP_VERSION >= 170000
+#define LUCENT_HAS_STD_FORMAT 1
 #endif
 #endif
 #endif
