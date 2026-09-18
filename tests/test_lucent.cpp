@@ -18,6 +18,17 @@
 #include <thread>
 #include <vector>
 
+// libc++ compiles std::format but does not define __cpp_lib_format until every
+// <chrono> and <ranges> formatter is finished. Detecting the formatted API from
+// that macro alone therefore removed lucent::info/warn/error from every libc++
+// consumer, and the failure surfaced only in the consumer, as "no member named
+// 'info' in namespace 'lucent'". Measured on the Android NDK 28 sysroot
+// (libc++ 19); this fires on macOS too, where the hosted builds use libc++.
+#if defined(_LIBCPP_VERSION) && _LIBCPP_VERSION >= 170000
+static_assert(LUCENT_HAS_FORMAT,
+              "libc++ 17 and later supply std::format, so the formatted API must exist");
+#endif
+
 namespace {
 
 int g_failures = 0;
