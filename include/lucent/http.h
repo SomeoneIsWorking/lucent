@@ -5,6 +5,7 @@
 #include <cstdint>
 #include <functional>
 #include <memory>
+#include <optional>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -15,13 +16,21 @@ namespace detail {
 struct ServerState;
 }
 
+struct Header {
+  std::string name;
+  std::string value;
+};
+
 struct Request {
   std::string method;
   std::string target;
+  std::vector<Header> headers;
   std::string body;
 
   std::string_view path() const noexcept;
   std::string_view query() const noexcept;
+  // The first header named `name`, compared without case.
+  std::optional<std::string_view> header(std::string_view name) const noexcept;
 };
 
 struct Response {
@@ -30,6 +39,8 @@ struct Response {
   std::string content_type = "text/plain; charset=utf-8";
   std::string body;
   std::string file_path;
+  // Sent after the fixed headers; a name or value holding CR or LF turns the reply into a 500.
+  std::vector<Header> headers;
 
   static Response text(int status, std::string reason, std::string body);
   static Response json(int status, std::string reason, std::string body);

@@ -72,7 +72,11 @@ bool send_response(detail::Socket socket, const Response &response) {
   std::string header = "HTTP/1.1 " + std::to_string(response.status) + " " + response.reason +
                        "\r\nContent-Type: " + response.content_type +
                        "\r\nContent-Length: " + std::to_string(content_length) +
-                       "\r\nCache-Control: no-store\r\nConnection: close\r\n\r\n";
+                       "\r\nCache-Control: no-store\r\nConnection: close\r\n";
+  for (const Header &extra : response.headers) {
+    header += extra.name + ": " + extra.value + "\r\n";
+  }
+  header += "\r\n";
   if (!send_all(socket, header.data(), header.size())) {
     return false;
   }
@@ -96,6 +100,21 @@ bool send_response(detail::Socket socket, const Response &response) {
 
 Response error_response(int status, std::string reason, std::string message) {
   return Response::text(status, std::move(reason), std::move(message) + "\n");
+}
+
+bool breaks_line(std::string_view text) {
+  return text.find_first_of("\r\n") != std::string_view::npos;
+}
+
+// A line break in a handler's header would let it inject headers or a body.
+Response checked(Response response) {
+  for (const Header &extra : response.headers) {
+    if (breaks_line(extra.name) || breaks_line(extra.value)) {
+      lucent::log(Level::Error, "http", "response header holds a line break: " + extra.name);
+      return error_response(500, "Internal Server Error", "invalid response header");
+    }
+  }
+  return response;
 }
 
 std::string_view trim(std::string_view value) {
@@ -189,6 +208,7 @@ bool read_request(detail::Socket socket, const ServerOptions &options, Request &
     }
     std::string_view name = trim(header.substr(0, colon));
     std::string_view value = trim(header.substr(colon + 1));
+    request.headers.push_back({std::string{name}, std::string{value}});
     if (lucent::text::ascii_iequals(name, "Content-Length")) {
       std::size_t parsed = 0;
       auto converted = std::from_chars(value.data(), value.data() + value.size(), parsed);
@@ -303,7 +323,7 @@ void serve_client(const std::shared_ptr<detail::ServerState> &state, detail::Soc
 
 #if LUCENT_EXCEPTIONS
   try {
-    if (!send_response(client, state->handler(request))) {
+    if (!send_response(client, checked(state->handler(request)))) {
       lucent::log(Level::Warn, "http", "response could not be sent");
     }
   } catch (const std::exception &exception) {
@@ -314,7 +334,7 @@ void serve_client(const std::shared_ptr<detail::ServerState> &state, detail::Soc
     send_response(client, error_response(500, "Internal Server Error", "request handler failed"));
   }
 #else
-  send_response(client, state->handler(request));
+  send_response(client, checked(state->handler(request)));
 #endif
   finish_client(state, client);
 }
@@ -382,6 +402,15 @@ std::string_view Request::path() const noexcept {
   return path;
 }
 
+std::optional<std::string_view> Request::header(std::string_view name) const noexcept {
+  for (const Header &candidate : headers) {
+    if (lucent::text::ascii_iequals(candidate.name, name)) {
+      return candidate.value;
+    }
+  }
+  return std::nullopt;
+}
+
 std::string_view Request::query() const noexcept {
   std::size_t separator = target.find('?');
   if (separator == std::string::npos) {
@@ -393,16 +422,16 @@ std::string_view Request::query() const noexcept {
 }
 
 Response Response::text(int status, std::string reason, std::string body) {
-  return {status, std::move(reason), "text/plain; charset=utf-8", std::move(body), {}};
+  return {status, std::move(reason), "text/plain; charset=utf-8", std::move(body), {}, {}};
 }
 
 Response Response::json(int status, std::string reason, std::string body) {
-  return {status, std::move(reason), "application/json", std::move(body), {}};
+  return {status, std::move(reason), "application/json", std::move(body), {}, {}};
 }
 
 Response Response::binary(int status, std::string reason, std::string content_type,
                           std::string body) {
-  return {status, std::move(reason), std::move(content_type), std::move(body), {}};
+  return {status, std::move(reason), std::move(content_type), std::move(body), {}, {}};
 }
 
 Response Response::file(int status, std::string reason, std::string content_type,

@@ -325,6 +325,30 @@ void test_file_response_streams_exact_bytes() {
   CHECK(!error);
 }
 
+void test_headers_reach_the_handler_and_the_client() {
+  lucent::http::Server server({}, [](const lucent::http::Request &incoming) {
+    lucent::http::Response response = lucent::http::Response::text(206, "Partial Content", "part");
+    response.headers.push_back(
+        {"Content-Range", std::string{incoming.header("range").value_or("none")}});
+    if (incoming.path() == "/inject") {
+      response.headers.push_back({"X-Bad", "a\r\nSet-Cookie: x"});
+    }
+    return response;
+  });
+  CHECK(server.start());
+  const auto response =
+      request(server.port(), "GET /part HTTP/1.1\r\nHost: localhost\r\nRange: bytes=2-5\r\n\r\n");
+  CHECK(response.starts_with("HTTP/1.1 206 Partial Content\r\n"));
+  CHECK(response.find("\r\nContent-Range: bytes=2-5\r\n") != std::string::npos);
+  CHECK(body(response) == "part");
+  const auto missing = request(server.port(), "GET /part HTTP/1.1\r\nHost: localhost\r\n\r\n");
+  CHECK(missing.find("\r\nContent-Range: none\r\n") != std::string::npos);
+  const auto injected = request(server.port(), "GET /inject HTTP/1.1\r\nHost: localhost\r\n\r\n");
+  CHECK(injected.starts_with("HTTP/1.1 500 "));
+  CHECK(injected.find("Set-Cookie") == std::string::npos);
+  server.stop();
+}
+
 } // namespace
 
 int main() {
@@ -333,6 +357,7 @@ int main() {
     test_server_transport_and_concurrency();
     test_local_network_scope_is_explicit();
     test_file_response_streams_exact_bytes();
+    test_headers_reach_the_handler_and_the_client();
     if (g_failures == 0) {
       std::cout << "all HTTP tests passed\n";
     } else {
