@@ -22,6 +22,8 @@ using lucent::file_dialog::FileDialog;
 using lucent::file_dialog::Result;
 using lucent::file_dialog::Status;
 
+int g_observed_x_error = 0;
+
 void require(bool value, const char *message) {
   if (!value) {
     throw std::runtime_error(message);
@@ -54,10 +56,9 @@ GtkWidget *chooser_window() {
 void require_unmapped(Window window) {
   Display *observer = XOpenDisplay(nullptr);
   require(observer != nullptr, "Could not open independent X11 observation connection");
-  static int observed_error = 0;
-  observed_error = 0;
+  g_observed_x_error = 0;
   const auto previous_handler = XSetErrorHandler(+[](Display *, XErrorEvent *error) {
-    observed_error = error->error_code;
+    g_observed_x_error = error->error_code;
     return 0;
   });
   XWindowAttributes attributes{};
@@ -65,7 +66,7 @@ void require_unmapped(Window window) {
   XSync(observer, false);
   XSetErrorHandler(previous_handler);
   XCloseDisplay(observer);
-  require(observed_error == 0 || observed_error == BadWindow,
+  require(g_observed_x_error == 0 || g_observed_x_error == BadWindow,
           "Unexpected X11 error while observing chooser teardown");
   require(found == 0 || attributes.map_state != IsViewable,
           "Completion left chooser visible to an independent X11 connection");

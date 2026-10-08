@@ -21,7 +21,7 @@ bool valid_application_name(std::string_view name) {
   if (name.empty() || name == "." || name == "..") {
     return false;
   }
-  for (const char character : name) {
+  for (char character : name) {
     if (!(character == '-' || character == '_' || character == '.' ||
           (character >= 'a' && character <= 'z') || (character >= 'A' && character <= 'Z') ||
           (character >= '0' && character <= '9'))) {
@@ -35,7 +35,7 @@ std::optional<std::filesystem::path> child_directory(std::string_view base, std:
   if (base.empty() || !valid_application_name(name)) {
     return std::nullopt;
   }
-  const std::filesystem::path root{base};
+  std::filesystem::path root{base};
   if (!root.is_absolute()) {
     return std::nullopt;
   }
@@ -43,9 +43,20 @@ std::optional<std::filesystem::path> child_directory(std::string_view base, std:
 }
 #endif
 
-std::string_view environment_value(const char *name) {
+std::string environment_value(const char *name) {
+#ifdef _WIN32
+  char *value = nullptr;
+  std::size_t length = 0;
+  if (_dupenv_s(&value, &length, name) != 0) {
+    return {};
+  }
+  std::string result = value ? value : "";
+  std::free(value);
+  return result;
+#else
   const char *value = std::getenv(name);
-  return value ? std::string_view{value} : std::string_view{};
+  return value ? value : "";
+#endif
 }
 
 } // namespace
@@ -57,20 +68,20 @@ std::optional<std::filesystem::path> resolve_user_data_directory(std::string_vie
   (void)environment;
   return std::nullopt;
 #elif defined(_WIN32)
-  if (const auto directory = child_directory(environment.appdata, application_name)) {
+  if (auto directory = child_directory(environment.appdata, application_name)) {
     return directory;
   }
   return child_directory(environment.home, application_name);
 #elif defined(__APPLE__)
-  if (const auto home = child_directory(environment.home, "Library")) {
+  if (auto home = child_directory(environment.home, "Library")) {
     return child_directory(home->string() + "/Application Support", application_name);
   }
   return std::nullopt;
 #else
-  if (const auto directory = child_directory(environment.xdg_config_home, application_name)) {
+  if (auto directory = child_directory(environment.xdg_config_home, application_name)) {
     return directory;
   }
-  if (const auto config = child_directory(environment.home, ".config")) {
+  if (auto config = child_directory(environment.home, ".config")) {
     return child_directory(config->string(), application_name);
   }
   return std::nullopt;
@@ -79,21 +90,22 @@ std::optional<std::filesystem::path> resolve_user_data_directory(std::string_vie
 
 std::optional<std::filesystem::path> user_data_directory(std::string_view application_name) {
   {
-    const std::lock_guard lock{override_mutex};
+    std::lock_guard lock{override_mutex};
     if (!app_private_directory.empty()) {
       return app_private_directory;
     }
   }
-  return resolve_user_data_directory(application_name, {environment_value("HOME"),
-                                                        environment_value("XDG_CONFIG_HOME"),
-                                                        environment_value("APPDATA")});
+  std::string home = environment_value("HOME");
+  std::string config_home = environment_value("XDG_CONFIG_HOME");
+  std::string appdata = environment_value("APPDATA");
+  return resolve_user_data_directory(application_name, {home, config_home, appdata});
 }
 
 bool set_user_data_directory(std::filesystem::path directory) {
   if (!directory.empty() && !directory.is_absolute()) {
     return false;
   }
-  const std::lock_guard lock{override_mutex};
+  std::lock_guard lock{override_mutex};
   app_private_directory = std::move(directory);
   return true;
 }
@@ -124,14 +136,17 @@ bool ensure_user_data_directory(const std::filesystem::path &directory, std::str
 
 } // namespace lucent::platform
 
+namespace {
+thread_local std::string c_api_result;
+}
+
 extern "C" const char *lucent_platform_user_data_directory(const char *application_name) {
-  static thread_local std::string result;
   if (!application_name) {
     return nullptr;
   }
-  const auto directory = lucent::platform::user_data_directory(application_name);
-  result = directory ? directory->string() : std::string{};
-  return result.empty() ? nullptr : result.c_str();
+  auto directory = lucent::platform::user_data_directory(application_name);
+  c_api_result = directory ? directory->string() : std::string{};
+  return c_api_result.empty() ? nullptr : c_api_result.c_str();
 }
 
 extern "C" int lucent_platform_set_user_data_directory(const char *directory) {
@@ -139,7 +154,7 @@ extern "C" int lucent_platform_set_user_data_directory(const char *directory) {
 }
 
 extern "C" int lucent_platform_ensure_user_data_directory(const char *application_name) {
-  const auto directory =
+  auto directory =
       application_name ? lucent::platform::user_data_directory(application_name) : std::nullopt;
   if (!directory) {
     return 0;

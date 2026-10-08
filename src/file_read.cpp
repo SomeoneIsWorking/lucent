@@ -81,7 +81,7 @@ struct FileRead::State : std::enable_shared_from_this<State> {
 
   void read_next() {
     // Probe one byte past the limit even when the file grows after its metadata was queried.
-    const auto count = std::min<std::size_t>(64 * 1024, limit - bytes.size() + 1);
+    const auto count = std::min<std::size_t>(std::size_t{64} * 1024, limit - bytes.size() + 1);
     g_input_stream_read_bytes_async(G_INPUT_STREAM(stream), count, G_PRIORITY_DEFAULT, cancellable,
                                     read_ready, retain());
   }

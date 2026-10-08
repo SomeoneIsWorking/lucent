@@ -2,6 +2,7 @@
 
 #include "http_socket.h"
 #include "lucent/log.h"
+#include "lucent/text.h"
 
 #include <algorithm>
 #include <atomic>
@@ -36,7 +37,7 @@ struct ReadResult {
 bool send_all(detail::Socket socket, const void *bytes, std::size_t size) {
   const char *cursor = static_cast<const char *>(bytes);
   while (size != 0) {
-    const std::ptrdiff_t sent = detail::send_bytes(socket, cursor, size);
+    std::ptrdiff_t sent = detail::send_bytes(socket, cursor, size);
     if (sent < 0 && detail::socket_error_interrupted(detail::last_socket_error())) {
       continue;
     }
@@ -97,26 +98,6 @@ Response error_response(int status, std::string reason, std::string message) {
   return Response::text(status, std::move(reason), std::move(message) + "\n");
 }
 
-bool ascii_iequals(std::string_view left, std::string_view right) {
-  if (left.size() != right.size()) {
-    return false;
-  }
-  for (std::size_t i = 0; i < left.size(); ++i) {
-    char a = left[i];
-    char b = right[i];
-    if (a >= 'A' && a <= 'Z') {
-      a = static_cast<char>(a - 'A' + 'a');
-    }
-    if (b >= 'A' && b <= 'Z') {
-      b = static_cast<char>(b - 'A' + 'a');
-    }
-    if (a != b) {
-      return false;
-    }
-  }
-  return true;
-}
-
 std::string_view trim(std::string_view value) {
   while (!value.empty() && (value.front() == ' ' || value.front() == '\t')) {
     value.remove_prefix(1);
@@ -171,9 +152,9 @@ bool read_request(detail::Socket socket, const ServerOptions &options, Request &
     return false;
   }
 
-  const std::size_t first_line_end = wire.find("\r\n");
-  const std::size_t method_end = wire.find(' ');
-  const std::size_t target_end =
+  std::size_t first_line_end = wire.find("\r\n");
+  std::size_t method_end = wire.find(' ');
+  std::size_t target_end =
       method_end == std::string::npos ? std::string::npos : wire.find(' ', method_end + 1);
   if (first_line_end == std::string::npos || method_end == std::string::npos ||
       target_end == std::string::npos || target_end >= first_line_end || method_end == 0 ||
@@ -181,7 +162,7 @@ bool read_request(detail::Socket socket, const ServerOptions &options, Request &
     result.error = "malformed request line";
     return false;
   }
-  const std::string_view version(wire.data() + target_end + 1, first_line_end - target_end - 1);
+  std::string_view version(wire.data() + target_end + 1, first_line_end - target_end - 1);
   if (version != "HTTP/1.1" && version != "HTTP/1.0") {
     result.status = 505;
     result.reason = "HTTP Version Not Supported";
@@ -195,22 +176,22 @@ bool read_request(detail::Socket socket, const ServerOptions &options, Request &
   bool saw_content_length = false;
   std::size_t line = first_line_end + 2;
   while (line < header_end) {
-    const std::size_t end = wire.find("\r\n", line);
+    std::size_t end = wire.find("\r\n", line);
     if (end == std::string::npos || end > header_end) {
       result.error = "malformed request headers";
       return false;
     }
-    const std::string_view header(wire.data() + line, end - line);
-    const std::size_t colon = header.find(':');
+    std::string_view header(wire.data() + line, end - line);
+    std::size_t colon = header.find(':');
     if (colon == std::string_view::npos) {
       result.error = "malformed request header";
       return false;
     }
-    const std::string_view name = trim(header.substr(0, colon));
-    const std::string_view value = trim(header.substr(colon + 1));
-    if (ascii_iequals(name, "Content-Length")) {
+    std::string_view name = trim(header.substr(0, colon));
+    std::string_view value = trim(header.substr(colon + 1));
+    if (lucent::text::ascii_iequals(name, "Content-Length")) {
       std::size_t parsed = 0;
-      const auto converted = std::from_chars(value.data(), value.data() + value.size(), parsed);
+      auto converted = std::from_chars(value.data(), value.data() + value.size(), parsed);
       if (value.empty() || converted.ec != std::errc{} ||
           converted.ptr != value.data() + value.size() ||
           (saw_content_length && parsed != content_length)) {
@@ -219,7 +200,7 @@ bool read_request(detail::Socket socket, const ServerOptions &options, Request &
       }
       content_length = parsed;
       saw_content_length = true;
-    } else if (ascii_iequals(name, "Transfer-Encoding") && !value.empty()) {
+    } else if (lucent::text::ascii_iequals(name, "Transfer-Encoding") && !value.empty()) {
       result.status = 501;
       result.reason = "Not Implemented";
       result.error = "Transfer-Encoding is not supported";
@@ -234,7 +215,7 @@ bool read_request(detail::Socket socket, const ServerOptions &options, Request &
     return false;
   }
 
-  const std::size_t body_start = header_end + 4;
+  std::size_t body_start = header_end + 4;
   while (wire.size() - body_start < content_length) {
     if (!read_more(socket, wire, result)) {
       return false;
@@ -267,12 +248,13 @@ bool decode_form_component(std::string_view encoded, std::string &decoded) {
       if (index + 2 >= encoded.size()) {
         return false;
       }
-      const int high = hex_digit(encoded[index + 1]);
-      const int low = hex_digit(encoded[index + 2]);
+      int high = hex_digit(encoded[index + 1]);
+      int low = hex_digit(encoded[index + 2]);
       if (high < 0 || low < 0) {
         return false;
       }
-      decoded.push_back(static_cast<char>((high << 4) | low));
+      unsigned int byte = (static_cast<unsigned int>(high) << 4U) | static_cast<unsigned int>(low);
+      decoded.push_back(static_cast<char>(byte));
       index += 2;
     } else {
       decoded.push_back(encoded[index]);
@@ -339,12 +321,12 @@ void serve_client(const std::shared_ptr<detail::ServerState> &state, detail::Soc
 
 void accept_connections(const std::shared_ptr<detail::ServerState> &state) {
   while (state->running.load(std::memory_order_acquire)) {
-    const detail::Socket listener = state->listener.load(std::memory_order_acquire);
+    detail::Socket listener = state->listener.load(std::memory_order_acquire);
     if (detail::is_invalid_socket(listener)) {
       break;
     }
-    const detail::Socket client = detail::accept_socket(listener);
-    const int accept_error = detail::last_socket_error();
+    detail::Socket client = detail::accept_socket(listener);
+    int accept_error = detail::last_socket_error();
     if (detail::is_invalid_socket(client) && detail::socket_error_interrupted(accept_error)) {
       continue;
     }
@@ -392,14 +374,22 @@ void accept_connections(const std::shared_ptr<detail::ServerState> &state) {
 } // namespace
 
 std::string_view Request::path() const noexcept {
-  const std::size_t separator = target.find('?');
-  return std::string_view(target).substr(0, separator);
+  std::string_view path(target);
+  std::size_t separator = target.find('?');
+  if (separator != std::string::npos) {
+    path.remove_suffix(path.size() - separator);
+  }
+  return path;
 }
 
 std::string_view Request::query() const noexcept {
-  const std::size_t separator = target.find('?');
-  return separator == std::string::npos ? std::string_view{}
-                                        : std::string_view(target).substr(separator + 1);
+  std::size_t separator = target.find('?');
+  if (separator == std::string::npos) {
+    return {};
+  }
+  std::string_view query(target);
+  query.remove_prefix(separator + 1);
+  return query;
 }
 
 Response Response::text(int status, std::string reason, std::string body) {
@@ -428,14 +418,14 @@ Response Response::file(int status, std::string reason, std::string content_type
 bool parse_form_urlencoded(std::string_view encoded, std::vector<FormField> &fields,
                            std::string &error) {
   while (!encoded.empty()) {
-    const std::size_t separator = encoded.find('&');
-    const std::string_view item = encoded.substr(0, separator);
+    std::size_t separator = encoded.find('&');
+    std::string_view item = encoded.substr(0, separator);
     encoded =
         separator == std::string_view::npos ? std::string_view{} : encoded.substr(separator + 1);
     if (item.empty()) {
       continue;
     }
-    const std::size_t equals = item.find('=');
+    std::size_t equals = item.find('=');
     FormField field;
     if (!decode_form_component(item.substr(0, equals), field.name) ||
         !decode_form_component(equals == std::string_view::npos ? std::string_view{}
@@ -471,7 +461,7 @@ bool Server::start() {
     return false;
   }
 
-  const detail::Socket listener = detail::create_tcp_socket();
+  detail::Socket listener = detail::create_tcp_socket();
   if (detail::is_invalid_socket(listener)) {
     lucent::log(Level::Error, "http",
                 "could not create listener (socket error " +
@@ -484,7 +474,7 @@ bool Server::start() {
   sockaddr_in address{};
   address.sin_family = AF_INET;
   address.sin_port = htons(state_->options.port);
-  const bool local_network = state_->options.listen_scope == ListenScope::LocalNetwork;
+  bool local_network = state_->options.listen_scope == ListenScope::LocalNetwork;
   address.sin_addr.s_addr = htonl(local_network ? INADDR_ANY : INADDR_LOOPBACK);
   if (bind(detail::native_socket(listener), reinterpret_cast<const sockaddr *>(&address),
            sizeof(address)) != 0 ||
@@ -535,7 +525,7 @@ void Server::stop() {
   if (!state_->running.exchange(false, std::memory_order_acq_rel)) {
     return;
   }
-  const detail::Socket listener =
+  detail::Socket listener =
       state_->listener.exchange(detail::kInvalidSocket, std::memory_order_acq_rel);
   if (!detail::is_invalid_socket(listener)) {
     detail::shutdown_socket(listener);
@@ -546,7 +536,7 @@ void Server::stop() {
   }
 
   std::unique_lock lock(state_->clients_mutex);
-  for (const detail::Socket client : state_->clients) {
+  for (detail::Socket client : state_->clients) {
     detail::shutdown_socket(client);
   }
   state_->clients_stopped.wait(lock, [this] {

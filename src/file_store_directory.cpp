@@ -111,6 +111,8 @@ std::string Directory::prepare() {
   return error;
 }
 
+// Payload bytes and a filename suffix are separate inputs to the internal staging contract.
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 Result Directory::stage(std::string_view bytes, std::string_view suffix,
                         const WriteFunction &write_bytes, const RemoveFunction &remove_file) {
   std::lock_guard lock(mutex_);
@@ -140,7 +142,7 @@ Result Directory::stage(std::string_view bytes, std::string_view suffix,
   }
   std::size_t written = 0;
   while (written < bytes.size() && !closed()) {
-    const auto requested = std::min<std::size_t>(64 * 1024, bytes.size() - written);
+    const auto requested = std::min<std::size_t>(std::size_t{64} * 1024, bytes.size() - written);
     const auto count = write_bytes(descriptor.get(), bytes.data() + written, requested);
     if (count < 0 && errno == EINTR) {
       continue;

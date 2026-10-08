@@ -25,7 +25,8 @@
 //     That is the usual case, and it is genuinely free.
 //   * With ANY channel enabled — i.e. exactly when someone is debugging — the string_view form has
 //     to hash the name, so it takes the mutex and builds a std::string. It is NOT one bool test.
-//   * On a hot path, hoist the name into a `static const lucent::Channel` (below).
+//   * On a hot path, keep a `lucent::Channel` in the owning object or another scope whose lifetime
+//     covers its callers (below).
 //
 //   Measured, gcc 15 -O3, x86-64, single-threaded, 2M iterations, one channel ON and the measured
 //   channel OFF (the case that hurts), median of five runs:
@@ -101,9 +102,9 @@ enum class Level { Debug, Info, Warn, Error };
 //
 // The name is borrowed, not copied: pass a string literal or something that outlives the Channel.
 namespace detail {
-// Bumped under the log mutex whenever the enabled set changes; read without the mutex. Declared
-// here only so the fast path inlines — treat it as private.
-extern std::atomic<std::uint64_t> g_channel_generation;
+// Bumped under the log mutex whenever the enabled set changes; read without the mutex. Constant
+// initialization keeps the early-static-init fast path valid without a separate extern definition.
+inline constinit std::atomic<std::uint64_t> g_channel_generation{1};
 } // namespace detail
 
 class Channel {
@@ -123,9 +124,9 @@ public:
     return enabled();
   }
   bool enabled() const {
-    const std::uint64_t gen = detail::g_channel_generation.load(std::memory_order_relaxed);
-    const std::uint64_t cached = state_.load(std::memory_order_relaxed);
-    if ((cached >> 1) == gen) {
+    std::uint64_t gen = detail::g_channel_generation.load(std::memory_order_relaxed);
+    std::uint64_t cached = state_.load(std::memory_order_relaxed);
+    if ((cached >> 1U) == gen) {
       return (cached & 1u) != 0;
     }
     return resolve();

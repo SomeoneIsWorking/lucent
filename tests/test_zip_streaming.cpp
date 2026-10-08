@@ -1,4 +1,5 @@
 #include "lucent/zip.h"
+#include "test_environment.h"
 #include "zip_directory.h"
 #include "zip_entry.h"
 #include "zip_fixture.h"
@@ -53,7 +54,7 @@ void stream_fixture(unsigned method) {
   std::uint32_t random = 1;
   for (char &byte : content) {
     random = random * 1664525u + 1013904223u;
-    byte = static_cast<char>(random >> 24);
+    byte = static_cast<char>(random >> 24u);
   }
   const auto fixture = make_archive({{"payload.bin", content, method}});
   SpanArchive span(fixture);
@@ -92,10 +93,10 @@ void stream_fixture(unsigned method) {
         "truncation after directory inspection fails exact reads");
   archive.readable_size = archive.size();
   Entry bad = directory[0];
-  bad.crc ^= 1;
+  bad.crc ^= 1u;
   // Update both headers to pass structural agreement and reach the CRC owner.
   auto corrupted = fixture;
-  corrupted[14] ^= 1;
+  corrupted[14] ^= 1u;
   SpanArchive corrupt_span(corrupted);
   check(!stream_entry(corrupt_span, bad, {}, error) &&
             error.find("CRC validation") != std::string::npos,
@@ -182,13 +183,15 @@ void large_sparse_archive() {
 } // namespace
 
 int main() {
-  stream_fixture(0);
-  stream_fixture(8);
-  buffered_directory_fixture();
-  large_sparse_archive();
-  std::cout << "zip streaming: " << checks - failures << '/' << checks
-            << " checks passed; bounded directory reads, 64KiB read/output bound, "
-               "1.5GiB sparse archive, CRC, "
-               "sink failure and backing-file truncation exercised\n";
-  return failures ? 1 : 0;
+  return lucent::test::run_main([] {
+    stream_fixture(0);
+    stream_fixture(8);
+    buffered_directory_fixture();
+    large_sparse_archive();
+    std::cout << "zip streaming: " << checks - failures << '/' << checks
+              << " checks passed; bounded directory reads, 64KiB read/output bound, "
+                 "1.5GiB sparse archive, CRC, "
+                 "sink failure and backing-file truncation exercised\n";
+    return failures ? 1 : 0;
+  });
 }

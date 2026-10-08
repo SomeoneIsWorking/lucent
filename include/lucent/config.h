@@ -1,12 +1,7 @@
 // lucent/config.h — typed, cached configuration.
 //
-// Configuration comes from the environment. The point of this header is that a program stops doing
-// this, everywhere, forever:
-//
-//     static int s_wide = -1;
-//     if (s_wide < 0) { const char* e = getenv("MYAPP_WIDE"); s_wide = e && *e != '0'; }
-//
-// and instead says what it means:
+// Configuration comes from the environment. Repeated raw environment reads at unrelated call sites
+// make defaults, parsing, and cache lifetime drift. Use typed configuration instead:
 //
 //     if (lucent::config::flag("WIDE")) ...
 //     int frames = lucent::config::number("FRAMES", 60);

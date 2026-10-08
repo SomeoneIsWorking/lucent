@@ -9,7 +9,8 @@
 
 namespace lucent::zip::detail {
 std::uint16_t u16(ByteView bytes, std::size_t offset) {
-  return static_cast<std::uint16_t>(bytes[offset] | (bytes[offset + 1] << 8));
+  return static_cast<std::uint16_t>(static_cast<unsigned>(bytes[offset]) |
+                                    (static_cast<unsigned>(bytes[offset + 1]) << 8U));
 }
 
 std::uint32_t u32(ByteView bytes, std::size_t offset) {

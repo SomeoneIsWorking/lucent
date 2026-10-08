@@ -14,8 +14,10 @@
 #define WIN32_LEAN_AND_MEAN
 #endif
 #include <windows.h>
+#elif defined(__APPLE__)
+#include <crt_externs.h>
 #else
-extern "C" char **environ;
+#include <unistd.h>
 #endif
 
 // The names lucent reads for its own two settings. Build-time, because that is the only way for
@@ -45,17 +47,23 @@ struct State {
 
 // CONSTRUCTED ON FIRST USE AND NEVER DESTROYED, which is not a style choice.
 //
-// As plain namespace-scope objects these were subject to static-initialisation order across
+// Ordinary namespace-scope State objects were subject to static-initialisation order across
 // translation units: a consumer that logged, or read config, from its own static initialiser could
 // reach an unordered_map whose constructor had not run — bucket count zero, hash modulo zero,
 // SIGFPE inside operator[]. That is exactly how it failed the first time a Channel was read during
 // static init. Deliberately leaking the State also removes the mirror-image hazard at the other end
 // of the program: a destructor that logs during static destruction would otherwise touch freed
 // containers. A logger has to be usable from the first line of a program to the last; a few hundred
-// bytes never returned to the allocator is the price.
+// bytes never returned to the allocator is the price. The once flag and pointer are constant
+// initialized, so the first call can safely construct State even during another static initializer.
+constinit std::once_flag state_once;
+constinit State *state_storage = nullptr;
+
 State &state() {
-  static State *s = new State();
-  return *s;
+  std::call_once(state_once, [] {
+    state_storage = new State();
+  });
+  return *state_storage;
 }
 
 std::string full_name(std::string_view name) {
@@ -207,7 +215,7 @@ long number(std::string_view name, long fallback) {
     return fallback;
   }
   char *end = nullptr;
-  const long parsed = std::strtol(v.c_str(), &end, 0); // base 0: decimal, 0x hex, 0 octal
+  long parsed = std::strtol(v.c_str(), &end, 0); // base 0: decimal, 0x hex, 0 octal
   return (end && end != v.c_str()) ? parsed : fallback;
 }
 
@@ -232,17 +240,22 @@ std::vector<std::string> active() {
     return out;
   }
   for (const char *entry = environment; *entry != '\0'; entry += std::strlen(entry) + 1) {
-    const std::string_view row(entry);
+    std::string_view row(entry);
     if (st.prefix.empty() || row.substr(0, st.prefix.size()) == st.prefix) {
       out.emplace_back(row);
     }
   }
   FreeEnvironmentStringsA(environment);
 #else
-  if (!environ) {
+#ifdef __APPLE__
+  char **environment = *_NSGetEnviron();
+#else
+  char **environment = environ;
+#endif
+  if (!environment) {
     return out;
   }
-  for (char **e = environ; *e; ++e) {
+  for (char **e = environment; *e; ++e) {
     std::string_view entry(*e);
     if (st.prefix.empty() || entry.substr(0, st.prefix.size()) == st.prefix) {
       out.emplace_back(entry);
