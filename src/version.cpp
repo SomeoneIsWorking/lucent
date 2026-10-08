@@ -95,6 +95,7 @@ int compare(const Triple &left, const Triple &right) {
   return 0;
 }
 
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 bool is_newer(std::string_view candidate, std::string_view current) {
   const auto candidate_version = parse(candidate);
   const auto current_version = parse(current);
