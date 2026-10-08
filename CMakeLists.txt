@@ -21,6 +21,7 @@ add_library(lucent STATIC
   src/content.cpp
   src/cvar.cpp
   src/http.cpp
+  src/http_client.cpp
   src/log.cpp
   src/log_c.cpp
   src/platform.cpp
@@ -143,6 +144,11 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
       target_link_libraries(lucent_http_tests PRIVATE iphlpapi)
     endif()
     add_test(NAME lucent_http_tests COMMAND lucent_http_tests)
+
+    add_executable(lucent_http_client_tests tests/test_http_client.cpp)
+    target_link_libraries(lucent_http_client_tests PRIVATE lucent Threads::Threads)
+    target_include_directories(lucent_http_client_tests PRIVATE src)
+    add_test(NAME lucent_http_client_tests COMMAND lucent_http_client_tests)
 
     add_executable(lucent_touch_tests tests/test_touch.cpp)
     target_link_libraries(lucent_touch_tests PRIVATE lucent)
