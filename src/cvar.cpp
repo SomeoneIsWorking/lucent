@@ -134,10 +134,16 @@ struct State {
 
 // Constructed on first use and never destroyed — a CVar is a global whose
 // constructor may run before this file's, and reset happens at static
-// destruction; see the identical rationale in config.cpp.
+// destruction; see the identical rationale in config.cpp. Constant initialization
+// keeps the once flag ready before any cross-translation-unit constructor calls state().
+constinit std::once_flag g_state_once;
+constinit State *g_state = nullptr;
+
 State &state() {
-  static State *s = new State();
-  return *s;
+  std::call_once(g_state_once, [] {
+    g_state = new State();
+  });
+  return *g_state;
 }
 
 std::string env_name_locked(const State &st, std::string_view name) {

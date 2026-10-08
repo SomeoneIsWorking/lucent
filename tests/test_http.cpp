@@ -1,4 +1,5 @@
 #include "lucent/http.h"
+#include "test_environment.h"
 
 #include <atomic>
 #include <algorithm>
@@ -10,6 +11,7 @@
 #include <limits>
 #include <optional>
 #include <semaphore>
+#include <span>
 #include <string>
 #include <thread>
 #include <vector>
@@ -77,7 +79,8 @@ bool send_all(ClientSocket client, std::string_view bytes) {
   while (!bytes.empty()) {
     auto bounded =
         (std::min)(bytes.size(), static_cast<std::size_t>((std::numeric_limits<int>::max)()));
-    auto sent = send(client, bytes.data(), static_cast<int>(bounded), 0);
+    std::span<const char> chunk(bytes.begin(), bounded);
+    auto sent = send(client, chunk.data(), static_cast<int>(chunk.size()), 0);
     if (sent <= 0) {
       return false;
     }
@@ -309,7 +312,7 @@ void test_file_response_streams_exact_bytes() {
     file.write(expected.data(), static_cast<std::streamsize>(expected.size()));
     CHECK(file.good());
   }
-  lucent::http::Server server({}, [path](const lucent::http::Request &) {
+  lucent::http::Server server({}, [&path](const lucent::http::Request &) {
     return lucent::http::Response::file(200, "OK", "application/zip", path.string());
   });
   CHECK(server.start());
@@ -325,14 +328,16 @@ void test_file_response_streams_exact_bytes() {
 } // namespace
 
 int main() {
-  test_form_decoder();
-  test_server_transport_and_concurrency();
-  test_local_network_scope_is_explicit();
-  test_file_response_streams_exact_bytes();
-  if (g_failures == 0) {
-    std::cout << "all HTTP tests passed\n";
-  } else {
-    std::cerr << g_failures << " failure(s)\n";
-  }
-  return g_failures == 0 ? 0 : 1;
+  return lucent::test::run_main([] {
+    test_form_decoder();
+    test_server_transport_and_concurrency();
+    test_local_network_scope_is_explicit();
+    test_file_response_streams_exact_bytes();
+    if (g_failures == 0) {
+      std::cout << "all HTTP tests passed\n";
+    } else {
+      std::cerr << g_failures << " failure(s)\n";
+    }
+    return g_failures == 0 ? 0 : 1;
+  });
 }

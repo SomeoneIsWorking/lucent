@@ -1,5 +1,6 @@
 #pragma once
 
+#include <cstdint>
 #include <filesystem>
 #include <functional>
 #include <memory>
@@ -8,7 +9,7 @@
 
 namespace lucent::file_dialog {
 
-enum class Status { Selected, Cancelled, Error };
+enum class Status : std::uint8_t { Selected, Cancelled, Error };
 
 struct Result {
   Status status{Status::Cancelled};

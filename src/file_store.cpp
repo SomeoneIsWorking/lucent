@@ -54,6 +54,8 @@ struct FileStore::State {
   }
 };
 
+// The public constructor retains the established byte-budget/file-count argument order.
+// NOLINTNEXTLINE(bugprone-easily-swappable-parameters)
 FileStore::FileStore(std::filesystem::path trusted_parent, std::size_t max_total_bytes,
                      std::size_t max_files) {
   while (!trusted_parent.has_filename() && trusted_parent != trusted_parent.root_path()) {

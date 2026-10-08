@@ -176,20 +176,23 @@ void enumerate_sees_every_registered_var() {
 } // namespace
 
 int main(int argc, char **argv) {
-  if (argc == 2 && std::string_view(argv[1]) == "--abort-unknown-cvar") {
+  return lucent::test::run_main([&] {
+    if (argc == 2 && std::string_view(argv[1]) == "--abort-unknown-cvar") {
 #ifdef _WIN32
-    // The Debug CRT otherwise opens a modal abort dialog on a headless CI runner.
-    _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
+      // The Debug CRT otherwise opens a modal abort dialog on a headless CI runner.
+      _set_abort_behavior(0, _WRITE_ABORT_MSG | _CALL_REPORTFAULT);
 #endif
-    lucent_cvar_flag("nonexistent", 0);
+      lucent_cvar_flag("nonexistent", 0);
+      return 0;
+    }
+    defaults_stand_when_nothing_is_configured();
+    file_beats_default_env_beats_file_arg_beats_env();
+    set_arg_before_register_is_stashed_and_applied();
+    c_abi_reads_effective_value_and_aborts_on_unknown(argv[0]);
+    save_round_trips_and_preserves_unknown_keys();
+    unregister_keeps_value_for_save_and_later_register();
+    enumerate_sees_every_registered_var();
+    std::cout << "cvar: layering, C ABI, save/preserve, unregister, enumerate passed\n";
     return 0;
-  }
-  defaults_stand_when_nothing_is_configured();
-  file_beats_default_env_beats_file_arg_beats_env();
-  set_arg_before_register_is_stashed_and_applied();
-  c_abi_reads_effective_value_and_aborts_on_unknown(argv[0]);
-  save_round_trips_and_preserves_unknown_keys();
-  unregister_keeps_value_for_save_and_later_register();
-  enumerate_sees_every_registered_var();
-  std::cout << "cvar: layering, C ABI, save/preserve, unregister, enumerate passed\n";
+  });
 }

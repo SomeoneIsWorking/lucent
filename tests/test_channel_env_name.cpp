@@ -21,7 +21,6 @@
 #include "lucent/log.h"
 #include "test_environment.h"
 
-#include <cstdlib>
 #include <iostream>
 #include <string>
 #include <vector>
@@ -88,7 +87,7 @@ void test_the_first_log_call_in_the_process_honours_the_compiled_in_env_name() {
   if (g_early_lines.empty()) {
     std::cerr << "note: NOTHING was captured — either the compiled-in channel variable was ignored,"
                  " or MYAPP_DEBUG was not set in this process's environment (it is: '"
-              << (std::getenv("MYAPP_DEBUG") ? std::getenv("MYAPP_DEBUG") : "<unset>") << "')\n";
+              << lucent::test::environment_value_or_unset("MYAPP_DEBUG") << "')\n";
   }
 
   CHECK_EQ(g_early_lines.size(), std::size_t(1));
@@ -151,15 +150,17 @@ void test_an_explicit_enable_channels_outranks_a_later_re_read() {
 } // namespace
 
 int main() {
-  test_the_first_log_call_in_the_process_honours_the_compiled_in_env_name();
-  test_the_compiled_in_names_are_what_config_reports();
-  test_the_environment_is_re_read_when_the_name_changes_late();
-  test_an_explicit_enable_channels_outranks_a_later_re_read();
+  return lucent::test::run_main([] {
+    test_the_first_log_call_in_the_process_honours_the_compiled_in_env_name();
+    test_the_compiled_in_names_are_what_config_reports();
+    test_the_environment_is_re_read_when_the_name_changes_late();
+    test_an_explicit_enable_channels_outranks_a_later_re_read();
 
-  if (g_failures == 0) {
-    std::cout << "all tests passed\n";
-  } else {
-    std::cerr << g_failures << " failure(s)\n";
-  }
-  return g_failures == 0 ? 0 : 1;
+    if (g_failures == 0) {
+      std::cout << "all tests passed\n";
+    } else {
+      std::cerr << g_failures << " failure(s)\n";
+    }
+    return g_failures == 0 ? 0 : 1;
+  });
 }

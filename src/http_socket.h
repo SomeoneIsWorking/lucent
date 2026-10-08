@@ -4,6 +4,7 @@
 #include <cstddef>
 #include <cstdint>
 #include <limits>
+#include <mutex>
 
 #ifdef _WIN32
 #ifndef NOMINMAX
@@ -51,15 +52,30 @@ inline bool is_invalid_socket(Socket socket) {
   return socket == kInvalidSocket;
 }
 
+#ifdef _WIN32
+class SocketRuntime {
+public:
+  bool initialize() {
+    std::call_once(once_, [this] {
+      WSADATA data{};
+      initialized_ = WSAStartup(MAKEWORD(2, 2), &data) == 0;
+    });
+    return initialized_;
+  }
+
+private:
+  std::once_flag once_;
+  bool initialized_ = false;
+};
+
+// WSAStartup is process-scoped. Keep Winsock alive through static destruction
+// so a late socket close never runs after WSACleanup.
+inline constinit SocketRuntime socket_runtime;
+#endif
+
 inline bool initialize_socket_runtime() {
 #ifdef _WIN32
-  // WSAStartup is process-scoped. This intentionally stays alive through
-  // process shutdown so static destructors cannot close a socket after cleanup.
-  static const bool initialized = [] {
-    WSADATA data{};
-    return WSAStartup(MAKEWORD(2, 2), &data) == 0;
-  }();
-  return initialized;
+  return socket_runtime.initialize();
 #else
   return true;
 #endif
@@ -110,9 +126,11 @@ inline void close_socket(Socket socket) {
 
 inline void set_close_on_exec(Socket socket) {
 #ifndef _WIN32
-  const int flags = fcntl(native_socket(socket), F_GETFD);
+  int flags = fcntl(native_socket(socket), F_GETFD);
   if (flags >= 0) {
-    fcntl(native_socket(socket), F_SETFD, flags | FD_CLOEXEC);
+    unsigned int enabled_flags =
+        static_cast<unsigned int>(flags) | static_cast<unsigned int>(FD_CLOEXEC);
+    fcntl(native_socket(socket), F_SETFD, static_cast<int>(enabled_flags));
   }
 #else
   (void)socket;
@@ -121,20 +139,20 @@ inline void set_close_on_exec(Socket socket) {
 
 inline void set_socket_timeouts(Socket socket) {
 #ifdef _WIN32
-  constexpr DWORD timeout_ms = 5000;
+  DWORD timeout_ms = 5000;
   setsockopt(native_socket(socket), SOL_SOCKET, SO_RCVTIMEO,
              reinterpret_cast<const char *>(&timeout_ms), sizeof(timeout_ms));
   setsockopt(native_socket(socket), SOL_SOCKET, SO_SNDTIMEO,
              reinterpret_cast<const char *>(&timeout_ms), sizeof(timeout_ms));
 #else
-  constexpr timeval timeout{5, 0};
+  timeval timeout{5, 0};
   setsockopt(native_socket(socket), SOL_SOCKET, SO_RCVTIMEO, &timeout, sizeof(timeout));
   setsockopt(native_socket(socket), SOL_SOCKET, SO_SNDTIMEO, &timeout, sizeof(timeout));
 #endif
 }
 
 inline void set_reuse_address(Socket socket) {
-  const int reuse = 1;
+  int reuse = 1;
 #ifdef _WIN32
   setsockopt(native_socket(socket), SOL_SOCKET, SO_REUSEADDR,
              reinterpret_cast<const char *>(&reuse), sizeof(reuse));
@@ -145,9 +163,9 @@ inline void set_reuse_address(Socket socket) {
 
 inline std::ptrdiff_t send_bytes(Socket socket, const char *bytes, std::size_t size) {
 #ifdef _WIN32
-  const auto bounded = static_cast<int>(
+  auto bounded = static_cast<int>(
       (std::min)(size, static_cast<std::size_t>((std::numeric_limits<int>::max)())));
-  const int sent = ::send(native_socket(socket), bytes, bounded, 0);
+  int sent = ::send(native_socket(socket), bytes, bounded, 0);
   return sent == SOCKET_ERROR ? -1 : sent;
 #else
   return ::send(native_socket(socket), bytes, size, MSG_NOSIGNAL);
@@ -156,9 +174,9 @@ inline std::ptrdiff_t send_bytes(Socket socket, const char *bytes, std::size_t s
 
 inline std::ptrdiff_t receive_bytes(Socket socket, char *bytes, std::size_t size) {
 #ifdef _WIN32
-  const auto bounded = static_cast<int>(
+  auto bounded = static_cast<int>(
       (std::min)(size, static_cast<std::size_t>((std::numeric_limits<int>::max)())));
-  const int received = ::recv(native_socket(socket), bytes, bounded, 0);
+  int received = ::recv(native_socket(socket), bytes, bounded, 0);
   return received == SOCKET_ERROR ? -1 : received;
 #else
   return ::recv(native_socket(socket), bytes, size, 0);

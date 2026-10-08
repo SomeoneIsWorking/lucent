@@ -22,16 +22,13 @@ namespace lucent {
 // of any Channel — including one constructed and read during static initialisation, before the
 // environment has ever been consulted — necessarily misses and resolves properly. A 0 start would
 // have made an early-constructed handle report a confident false forever.
-namespace detail {
-std::atomic<std::uint64_t> g_channel_generation{1};
-} // namespace detail
-
 namespace {
 
-// CONSTRUCTED ON FIRST USE AND NEVER DESTROYED — see the identical note in config.cpp. As plain
-// namespace-scope objects these were subject to static-initialisation order across translation
+// CONSTRUCTED ON FIRST USE AND NEVER DESTROYED — see the identical note in config.cpp. Ordinary
+// namespace-scope State objects were subject to static-initialisation order across translation
 // units, so a consumer logging from its own static initialiser could reach an unconstructed
-// container. A logger must work from the program's first line to its last.
+// container. The constant-initialized once flag/pointer preserve first-use construction without
+// destruction. A logger must work from the program's first line to its last.
 struct State {
   std::mutex mutex;
   Sink sink;                                // empty -> default file/stderr sink
@@ -44,9 +41,14 @@ struct State {
   bool channels_explicit = false;
 };
 
+constinit std::once_flag state_once;
+constinit State *state_storage = nullptr;
+
 State &state() {
-  static State *s = new State();
-  return *s;
+  std::call_once(state_once, [] {
+    state_storage = new State();
+  });
+  return *state_storage;
 }
 
 // FAST PATH FOR THE OVERWHELMINGLY COMMON CASE: no channels enabled at all.
@@ -147,6 +149,18 @@ bool channel_enabled_locked(std::string_view channel) {
   return enabled_in_snapshot(channel);
 }
 
+std::FILE *open_append_file(const std::string &path) {
+#ifdef _WIN32
+  std::FILE *stream = nullptr;
+  if (fopen_s(&stream, path.c_str(), "a") != 0) {
+    return nullptr;
+  }
+  return stream;
+#else
+  return std::fopen(path.c_str(), "a");
+#endif
+}
+
 void load_channels_locked() {
   if (state().channels_loaded) {
     return;
@@ -166,8 +180,8 @@ void load_channels_locked() {
   }
   std::size_t start = 0;
   while (start <= list.size()) {
-    const std::size_t comma = list.find(',', start);
-    const std::size_t end = (comma == std::string::npos) ? list.size() : comma;
+    std::size_t comma = list.find(',', start);
+    std::size_t end = (comma == std::string::npos) ? list.size() : comma;
     std::string name = list.substr(start, end - start);
     while (!name.empty() && name.front() == ' ') {
       name.erase(name.begin());
@@ -194,7 +208,7 @@ std::FILE *stream_locked() {
   }
   const std::string &path = config::log_file_path();
   if (!path.empty()) {
-    if (std::FILE *f = std::fopen(path.c_str(), "a")) {
+    if (std::FILE *f = open_append_file(path)) {
       // Line-buffered so `tail -f` shows progress and a crash does not swallow the last lines.
       std::setvbuf(f, nullptr, _IOLBF, 0);
       state().stream = f;
@@ -243,12 +257,12 @@ std::string tag_for(Level level, std::string_view channel) {
 // the formatter here, at the single sink boundary, so stderr, files, and installed sinks cannot
 // drift into different timestamp schemes.
 std::string timestamp_now() {
-  const auto now = std::chrono::system_clock::now();
-  const auto since_epoch = now.time_since_epoch();
-  const auto seconds = std::chrono::duration_cast<std::chrono::seconds>(since_epoch);
-  const auto milliseconds =
+  auto now = std::chrono::system_clock::now();
+  auto since_epoch = now.time_since_epoch();
+  auto seconds = std::chrono::duration_cast<std::chrono::seconds>(since_epoch);
+  auto milliseconds =
       std::chrono::duration_cast<std::chrono::milliseconds>(since_epoch - seconds).count();
-  const std::time_t epoch_seconds = std::chrono::system_clock::to_time_t(now);
+  std::time_t epoch_seconds = std::chrono::system_clock::to_time_t(now);
   std::tm utc{};
 #ifdef _WIN32
   gmtime_s(&utc, &epoch_seconds);
@@ -257,11 +271,11 @@ std::string timestamp_now() {
 #endif
 
   char text[] = "[0000-00-00T00:00:00.000Z] ";
-  const auto write_two_digits = [&text](std::size_t offset, int value) {
+  auto write_two_digits = [&text](std::size_t offset, int value) {
     text[offset] = static_cast<char>('0' + value / 10 % 10);
     text[offset + 1] = static_cast<char>('0' + value % 10);
   };
-  const int year = utc.tm_year + 1900;
+  int year = utc.tm_year + 1900;
   text[1] = static_cast<char>('0' + year / 1000 % 10);
   text[2] = static_cast<char>('0' + year / 100 % 10);
   write_two_digits(3, year);
@@ -284,7 +298,7 @@ void log(Level level, std::string_view channel, std::string_view message) {
   while (lead < message.size() && message[lead] == '\n') {
     ++lead;
   }
-  const std::string_view body = message.substr(lead);
+  std::string_view body = message.substr(lead);
 
   std::string line;
   line.reserve(body.size() + channel.size() + 36);
@@ -364,7 +378,7 @@ bool Channel::resolve() const {
     // misses.
     gen = detail::g_channel_generation.load(std::memory_order_relaxed);
   }
-  state_.store((gen << 1) | static_cast<std::uint64_t>(on), std::memory_order_relaxed);
+  state_.store((gen << 1U) | static_cast<std::uint64_t>(on), std::memory_order_relaxed);
   return on;
 }
 
@@ -381,8 +395,8 @@ void enable_channels(std::string_view list) {
   std::string text(list);
   std::size_t start = 0;
   while (start <= text.size()) {
-    const std::size_t comma = text.find(',', start);
-    const std::size_t end = (comma == std::string::npos) ? text.size() : comma;
+    std::size_t comma = text.find(',', start);
+    std::size_t end = (comma == std::string::npos) ? text.size() : comma;
     std::string name = text.substr(start, end - start);
     while (!name.empty() && name.front() == ' ') {
       name.erase(name.begin());

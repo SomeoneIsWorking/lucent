@@ -10,12 +10,12 @@ namespace zip_test {
 
 inline void u16(std::vector<unsigned char> &bytes, unsigned value) {
   bytes.push_back(static_cast<unsigned char>(value));
-  bytes.push_back(static_cast<unsigned char>(value >> 8));
+  bytes.push_back(static_cast<unsigned char>(value >> 8u));
 }
 
 inline void u32(std::vector<unsigned char> &bytes, unsigned value) {
   u16(bytes, value);
-  u16(bytes, value >> 16);
+  u16(bytes, value >> 16u);
 }
 
 inline std::vector<unsigned char> deflate_raw(std::string_view input) {

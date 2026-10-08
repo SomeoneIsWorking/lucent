@@ -9,6 +9,7 @@
 
 #include <cerrno>
 #include <chrono>
+#include <cstddef>
 #include <fstream>
 #include <stdexcept>
 #include <string>
@@ -229,10 +230,10 @@ void immediate_exit(const std::filesystem::path &executable, const std::filesyst
 }
 
 void child_stage(const std::filesystem::path &parent) {
-  FileStore store(parent, 16 * 1024 * 1024, 2);
+  FileStore store(parent, std::size_t{16} * 1024 * 1024, 2);
   store.start("completed before shutdown", ".bin");
   require(finish(store).error.empty(), "Child must publish one backing file before teardown");
-  store.start(std::string(8 * 1024 * 1024, 'x'), ".bin");
+  store.start(std::string(std::size_t{8} * 1024 * 1024, 'x'), ".bin");
   // No more GLib pumping: destructor must close/drain/clean before the process returns.
 }
 } // namespace

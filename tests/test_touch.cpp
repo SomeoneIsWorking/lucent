@@ -1,4 +1,5 @@
 #include "lucent/touch.h"
+#include "test_environment.h"
 
 #include <iostream>
 #include <vector>
@@ -52,11 +53,13 @@ void priority_and_cancel() {
 } // namespace
 
 int main() {
-  capture_and_multitouch();
-  priority_and_cancel();
-  if (failures != 0) {
-    return 1;
-  }
-  std::cout << "touch router: all checks passed\n";
-  return 0;
+  return lucent::test::run_main([] {
+    capture_and_multitouch();
+    priority_and_cancel();
+    if (failures != 0) {
+      return 1;
+    }
+    std::cout << "touch router: all checks passed\n";
+    return 0;
+  });
 }

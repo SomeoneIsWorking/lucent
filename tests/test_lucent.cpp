@@ -356,7 +356,7 @@ void test_line_flush_debug_takes_a_channel() {
 // there.
 void test_channel_tracks_changes_across_threads() {
   lucent::enable_channels("");
-  static const lucent::Channel ch{"racy"};
+  lucent::Channel ch{"racy"};
   std::atomic<bool> stop{false};
   std::atomic<int> saw_true{0}, saw_false{0};
 
@@ -576,9 +576,7 @@ void test_c_logging_api() {
   }
 }
 
-} // namespace
-
-int main() {
+int run_tests() {
   test_config_flag();
   test_config_number_and_text();
   test_config_prefix();
@@ -608,4 +606,10 @@ int main() {
     std::cerr << g_failures << " failure(s)\n";
   }
   return g_failures == 0 ? 0 : 1;
+}
+
+} // namespace
+
+int main() {
+  return lucent::test::run_main(run_tests);
 }
