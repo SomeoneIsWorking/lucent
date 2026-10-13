@@ -1,5 +1,5 @@
-// lucent/http_client.h — the client side of loopback HTTP: one GET, and a WebSocket for local
-// debugging protocols such as Chrome DevTools.
+// lucent/http_client.h — the client side of loopback HTTP: one GET or POST, and a WebSocket for
+// local debugging protocols such as Chrome DevTools.
 #pragma once
 
 #include <cstddef>
@@ -19,6 +19,10 @@ struct FetchResult {
 // by the connection closing is read; chunked transfer is refused and named in `error`.
 bool get_loopback(std::uint16_t port, std::string_view target, FetchResult &result,
                   std::string &error);
+
+// POSTs `body` to `target` on 127.0.0.1:`port`, read as get_loopback reads.
+bool post_loopback(std::uint16_t port, std::string_view target, std::string_view body,
+                   FetchResult &result, std::string &error);
 
 // The Sec-WebSocket-Accept value a server answers `key` with (RFC 6455 section 4.2.2).
 std::string websocket_accept(std::string_view key);

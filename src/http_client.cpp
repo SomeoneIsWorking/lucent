@@ -263,15 +263,24 @@ private:
 
 } // namespace
 
-bool get_loopback(std::uint16_t port, std::string_view target, FetchResult &result,
-                  std::string &error) {
+namespace {
+
+bool exchange_loopback(std::uint16_t port, std::string_view method, std::string_view target,
+                       std::optional<std::string_view> body, FetchResult &result,
+                       std::string &error) {
   Connection connection;
   if (!connection.open(port, error)) {
     return false;
   }
-  const std::string request = "GET " + std::string{target} +
-                              " HTTP/1.1\r\nHost: 127.0.0.1:" + std::to_string(port) +
-                              "\r\nConnection: close\r\n\r\n";
+  std::string request = std::string{method} + " " + std::string{target} +
+                        " HTTP/1.1\r\nHost: 127.0.0.1:" + std::to_string(port) +
+                        "\r\nConnection: close\r\n";
+  if (body) {
+    request += "Content-Length: " + std::to_string(body->size()) + "\r\n\r\n";
+    request += *body;
+  } else {
+    request += "\r\n";
+  }
   Head head;
   if (!connection.send_all(request, error) || !connection.read_head(head, error)) {
     return false;
@@ -291,13 +300,13 @@ bool get_loopback(std::uint16_t port, std::string_view target, FetchResult &resu
     }
     length = parsed;
   }
-  std::string body = std::move(head.rest);
-  while (!length || body.size() < *length) {
-    if (body.size() > kMaxBodyBytes) {
+  std::string response = std::move(head.rest);
+  while (!length || response.size() < *length) {
+    if (response.size() > kMaxBodyBytes) {
       error = "response body too large";
       return false;
     }
-    const ReadOutcome outcome = connection.read_some(body);
+    const ReadOutcome outcome = connection.read_some(response);
     if (outcome == ReadOutcome::Closed && !length) {
       break;
     }
@@ -307,11 +316,23 @@ bool get_loopback(std::uint16_t port, std::string_view target, FetchResult &resu
     }
   }
   if (length) {
-    body.resize(*length);
+    response.resize(*length);
   }
   result.status = head.status;
-  result.body = std::move(body);
+  result.body = std::move(response);
   return true;
+}
+
+} // namespace
+
+bool get_loopback(std::uint16_t port, std::string_view target, FetchResult &result,
+                  std::string &error) {
+  return exchange_loopback(port, "GET", target, std::nullopt, result, error);
+}
+
+bool post_loopback(std::uint16_t port, std::string_view target, std::string_view body,
+                   FetchResult &result, std::string &error) {
+  return exchange_loopback(port, "POST", target, body, result, error);
 }
 
 std::string websocket_accept(std::string_view key) {

@@ -155,6 +155,28 @@ void test_get_reads_a_server_response() {
          "GET to a closed port fails with a reason");
 }
 
+void test_post_sends_its_body() {
+  lucent::http::Server server({}, [](const lucent::http::Request &request) {
+    if (request.method == "POST" && request.path() == "/echo") {
+      return lucent::http::Response::text(200, "OK", "got " + request.body);
+    }
+    return lucent::http::Response::text(405, "Method Not Allowed", request.method);
+  });
+  expect(server.start(), "server starts");
+  lucent::http::FetchResult result;
+  std::string error;
+  expect(lucent::http::post_loopback(server.port(), "/echo", "hello", result, error) &&
+             result.status == 200 && result.body == "got hello",
+         "POST delivers its body");
+  expect(lucent::http::post_loopback(server.port(), "/echo", "", result, error) &&
+             result.status == 200 && result.body == "got ",
+         "POST with an empty body");
+  expect(lucent::http::get_loopback(server.port(), "/echo", result, error) &&
+             result.status == 405 && result.body == "GET",
+         "GET stays a GET");
+  server.stop();
+}
+
 void test_websocket_exchange() {
   Peer peer;
   std::thread server{[&peer] {
@@ -197,6 +219,7 @@ void test_websocket_rejects_a_wrong_accept() {
 int main() {
   test_accept_matches_rfc_example();
   test_get_reads_a_server_response();
+  test_post_sends_its_body();
   test_websocket_exchange();
   test_websocket_rejects_a_wrong_accept();
   if (g_failures != 0) {
