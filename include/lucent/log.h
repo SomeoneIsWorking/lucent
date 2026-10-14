@@ -158,12 +158,23 @@ template <class... Args> using FormatString = std::format_string<Args...>;
 template <class... Args> std::string format(FormatString<Args...> fmt, Args &&...args) {
   return std::format(fmt, std::forward<Args>(args)...);
 }
+using FormatError = std::format_error;
 #else
 template <class... Args> using FormatString = fmt::format_string<Args...>;
 template <class... Args> std::string format(FormatString<Args...> fmt, Args &&...args) {
   return fmt::format(fmt, std::forward<Args>(args)...);
 }
+using FormatError = fmt::format_error;
 #endif
+
+// What a level helper emits: a formatter that throws is reported in the line, never to the caller.
+template <class... Args> std::string message(FormatString<Args...> fmt, Args &&...args) {
+  try {
+    return detail::format(fmt, std::forward<Args>(args)...);
+  } catch (const FormatError &failure) {
+    return std::string("format failed (") + failure.what() + "): " + std::string(fmt.get());
+  }
+}
 } // namespace detail
 
 // Format a message WITHOUT emitting it — the same std::format semantics as the level helpers, for
@@ -192,15 +203,15 @@ void rearm_channels_from_env();
 #if LUCENT_HAS_FORMAT
 template <class... Args>
 void info(std::string_view channel, detail::FormatString<Args...> fmt, Args &&...args) {
-  log(Level::Info, channel, detail::format(fmt, std::forward<Args>(args)...));
+  log(Level::Info, channel, detail::message(fmt, std::forward<Args>(args)...));
 }
 template <class... Args>
 void warn(std::string_view channel, detail::FormatString<Args...> fmt, Args &&...args) {
-  log(Level::Warn, channel, detail::format(fmt, std::forward<Args>(args)...));
+  log(Level::Warn, channel, detail::message(fmt, std::forward<Args>(args)...));
 }
 template <class... Args>
 void error(std::string_view channel, detail::FormatString<Args...> fmt, Args &&...args) {
-  log(Level::Error, channel, detail::format(fmt, std::forward<Args>(args)...));
+  log(Level::Error, channel, detail::message(fmt, std::forward<Args>(args)...));
 }
 // Channel-gated. The format arguments are NOT evaluated when the channel is off.
 template <class... Args>
@@ -208,29 +219,29 @@ void debug(std::string_view channel, detail::FormatString<Args...> fmt, Args &&.
   if (!detail::channel_enabled(channel)) {
     return;
   }
-  log(Level::Debug, channel, detail::format(fmt, std::forward<Args>(args)...));
+  log(Level::Debug, channel, detail::message(fmt, std::forward<Args>(args)...));
 }
 
 // The same four, taking a resolved Channel. Identical output; the debug() one gates on the cached
 // word instead of hashing the name. Migrating a call site is a matter of hoisting the literal.
 template <class... Args>
 void info(const Channel &channel, detail::FormatString<Args...> fmt, Args &&...args) {
-  log(Level::Info, channel.name(), detail::format(fmt, std::forward<Args>(args)...));
+  log(Level::Info, channel.name(), detail::message(fmt, std::forward<Args>(args)...));
 }
 template <class... Args>
 void warn(const Channel &channel, detail::FormatString<Args...> fmt, Args &&...args) {
-  log(Level::Warn, channel.name(), detail::format(fmt, std::forward<Args>(args)...));
+  log(Level::Warn, channel.name(), detail::message(fmt, std::forward<Args>(args)...));
 }
 template <class... Args>
 void error(const Channel &channel, detail::FormatString<Args...> fmt, Args &&...args) {
-  log(Level::Error, channel.name(), detail::format(fmt, std::forward<Args>(args)...));
+  log(Level::Error, channel.name(), detail::message(fmt, std::forward<Args>(args)...));
 }
 template <class... Args>
 void debug(const Channel &channel, detail::FormatString<Args...> fmt, Args &&...args) {
   if (!channel.enabled()) {
     return;
   }
-  log(Level::Debug, channel.name(), detail::format(fmt, std::forward<Args>(args)...));
+  log(Level::Debug, channel.name(), detail::message(fmt, std::forward<Args>(args)...));
 }
 #endif
 
