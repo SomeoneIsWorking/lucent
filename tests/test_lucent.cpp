@@ -554,6 +554,37 @@ void test_format_builds_a_string_without_emitting() {
   lucent::enable_channels("");
 }
 
+#if LUCENT_HAS_STD_FORMAT
+struct FormatsBadly {};
+} // namespace
+
+template <> struct std::formatter<FormatsBadly> {
+  constexpr auto parse(std::format_parse_context &context) {
+    return context.begin();
+  }
+  auto format(const FormatsBadly &, std::format_context &context) const {
+    throw std::format_error("no text for this value");
+    return context.out();
+  }
+};
+
+namespace {
+void test_a_format_that_fails_is_logged_not_thrown() {
+  Capture cap;
+  bool threw = false;
+  try {
+    lucent::error("fmtfail", "value {}", FormatsBadly{});
+  } catch (const std::format_error &) {
+    threw = true;
+  }
+  CHECK(!threw);
+  CHECK(cap.lines.size() == 1);
+  CHECK(!cap.lines.empty() &&
+        without_timestamp(cap.lines.front()) ==
+            "[fmtfail:error] format failed (no text for this value): value {}");
+}
+#endif
+
 void test_c_logging_api() {
   Capture cap;
   lucent::enable_channels("cchan");
@@ -598,6 +629,9 @@ int run_tests() {
   test_string_keyed_gate_does_not_wait_for_the_logger_mutex();
   test_string_keyed_gate_tracks_the_set();
   test_format_builds_a_string_without_emitting();
+#if LUCENT_HAS_STD_FORMAT
+  test_a_format_that_fails_is_logged_not_thrown();
+#endif
   test_c_logging_api();
 
   if (g_failures == 0) {
