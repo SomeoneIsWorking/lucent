@@ -117,16 +117,6 @@ Response checked(Response response) {
   return response;
 }
 
-std::string_view trim(std::string_view value) {
-  while (!value.empty() && (value.front() == ' ' || value.front() == '\t')) {
-    value.remove_prefix(1);
-  }
-  while (!value.empty() && (value.back() == ' ' || value.back() == '\t')) {
-    value.remove_suffix(1);
-  }
-  return value;
-}
-
 bool read_more(detail::Socket socket, std::string &wire, ReadResult &result) {
   char block[2048];
   std::ptrdiff_t count = -1;
@@ -206,8 +196,8 @@ bool read_request(detail::Socket socket, const ServerOptions &options, Request &
       result.error = "malformed request header";
       return false;
     }
-    std::string_view name = trim(header.substr(0, colon));
-    std::string_view value = trim(header.substr(colon + 1));
+    std::string_view name = lucent::text::trim(header.substr(0, colon));
+    std::string_view value = lucent::text::trim(header.substr(colon + 1));
     request.headers.push_back({std::string{name}, std::string{value}});
     if (lucent::text::ascii_iequals(name, "Content-Length")) {
       std::size_t parsed = 0;

@@ -7,7 +7,7 @@ Optional Linux `lucent::file_dialog` adds GTK3/GIO without changing core depende
 
 - `config` owns typed, cached environment configuration.
 - `cvar` owns layered configuration variables: a compiled default overridden by a `name = value`
-  file, then the environment (via `config`), then an explicit `--set`. Consumers define `Var<T>`
+  file, then the environment (via `config`) or an explicit `--set`, then a runtime set. Consumers define `Var<T>`
   globals and register them; C code reads them through `cvar_c.h`. Persistence policy (which file,
   where) stays with the consumer.
 - `log` owns all process diagnostics and sinks.

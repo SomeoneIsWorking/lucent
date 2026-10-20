@@ -2,7 +2,7 @@
  *
  * A C translation unit cannot hold a Var<T>, but it can read one that a C++
  * startup unit registered. Each getter looks the CVar up by name and returns
- * its effective value (default < file < environment < --set).
+ * its effective value (default < file < environment or --set < runtime).
  *
  * An unknown name is a programming error -- the CVar was never registered -- and
  * aborts with a message rather than silently returning the fallback, so a typo

@@ -2,6 +2,7 @@
 
 #include "lucent/config.h"
 #include "lucent/cvar_c.h"
+#include "lucent/log.h"
 #include "lucent/text.h"
 
 #include <cctype>
@@ -21,25 +22,9 @@ namespace lucent::cvar {
 
 // ── value parsing / formatting ─────────────────────────────────────────────────
 namespace detail {
-namespace {
-
-std::string_view trim(std::string_view v) {
-  const auto is_space = [](unsigned char c) {
-    return std::isspace(c) != 0;
-  };
-  while (!v.empty() && is_space(static_cast<unsigned char>(v.front()))) {
-    v.remove_prefix(1);
-  }
-  while (!v.empty() && is_space(static_cast<unsigned char>(v.back()))) {
-    v.remove_suffix(1);
-  }
-  return v;
-}
-
-} // namespace
 
 bool parse(std::string_view text, bool &out) {
-  const std::string t = lucent::text::ascii_lower(trim(text));
+  const std::string t = lucent::text::ascii_lower(lucent::text::trim(text));
   if (t == "1" || t == "true" || t == "yes" || t == "on") {
     out = true;
     return true;
@@ -52,7 +37,7 @@ bool parse(std::string_view text, bool &out) {
 }
 
 bool parse(std::string_view text, long &out) {
-  const std::string t(trim(text));
+  const std::string t(lucent::text::trim(text));
   if (t.empty()) {
     return false;
   }
@@ -66,7 +51,7 @@ bool parse(std::string_view text, long &out) {
 }
 
 bool parse(std::string_view text, double &out) {
-  const std::string t(trim(text));
+  const std::string t(lucent::text::trim(text));
   if (t.empty()) {
     return false;
   }
@@ -80,7 +65,7 @@ bool parse(std::string_view text, double &out) {
 }
 
 bool parse(std::string_view text, std::string &out) {
-  out.assign(trim(text));
+  out.assign(lucent::text::trim(text));
   return true;
 }
 
@@ -106,12 +91,6 @@ std::string format(double value) {
 }
 std::string format(const std::string &value) {
   return value;
-}
-
-void report_parse_failure(const std::string &name, std::string_view text) {
-  std::fprintf(stderr,
-               "lucent::cvar: '%.*s' is not a valid value for '%s'; keeping the previous one\n",
-               static_cast<int>(text.size()), text.data(), name.c_str());
 }
 
 } // namespace detail
@@ -146,7 +125,7 @@ State &state() {
   return *g_state;
 }
 
-std::string env_name_locked(const State &st, std::string_view name) {
+std::string derived_env_name_locked(const State &st, std::string_view name) {
   std::string out;
   out.reserve(st.prefix.size() + name.size());
   out.append(st.prefix);
@@ -160,24 +139,31 @@ std::string env_name_locked(const State &st, std::string_view name) {
   return out;
 }
 
-// Apply everything below the constructor default that is waiting for `var`:
-// a stashed file value, then a stashed --set, then the environment. Called
-// with the lock held.
+void apply_reporting(VarBase &var, std::string_view text, Layer at, std::string_view source) {
+  if (!var.apply(text, at)) {
+    lucent::log(lucent::Level::Warn, "cvar",
+                std::string(source) + ": \"" + std::string(text) + "\" is not a valid value for " +
+                    var.name() + "; ignored");
+  }
+}
+
+// Apply a stashed file value, then the environment, then a stashed set_arg(). Lock held.
 void apply_pending_locked(State &st, VarBase &var) {
   const std::string &name = var.name();
   if (auto it = st.stashed_value.find(name); it != st.stashed_value.end()) {
-    var.apply(it->second, Layer::Value);
+    if (var.persistable()) {
+      apply_reporting(var, it->second, Layer::Value, "config file");
+    }
     st.stashed_value.erase(it);
   }
   st.preserved_unknowns.erase(name);
 
-  const std::string env = env_name_locked(st, name);
-  if (lucent::config::present(env)) {
-    var.apply(lucent::config::text(env), Layer::Override);
+  if (lucent::config::present(var.env_name())) {
+    apply_reporting(var, lucent::config::text(var.env_name()), Layer::Override, var.env_name());
   }
 
   if (auto it = st.stashed_override.find(name); it != st.stashed_override.end()) {
-    var.apply(it->second, Layer::Override);
+    apply_reporting(var, it->second, Layer::Override, "--set");
     st.stashed_override.erase(it);
   }
 }
@@ -185,9 +171,25 @@ void apply_pending_locked(State &st, VarBase &var) {
 } // namespace
 
 // ── VarBase ───────────────────────────────────────────────────────────────────
-VarBase::VarBase(std::string name) : name_(std::move(name)) {
+VarBase::VarBase(std::string name, Options options)
+    : name_(std::move(name)), options_(std::move(options)) {
 }
 VarBase::~VarBase() = default;
+
+Layer VarBase::layer() const noexcept {
+  for (std::size_t index = kLayerCount - 1; index > 0; --index) {
+    if (present_[index]) {
+      return static_cast<Layer>(index);
+    }
+  }
+  return Layer::Default;
+}
+
+void VarBase::clear(Layer at) noexcept {
+  if (at != Layer::Default) {
+    present_[static_cast<std::size_t>(at)] = false;
+  }
+}
 
 // ── free functions ────────────────────────────────────────────────────────────
 void set_prefix(std::string_view prefix) {
@@ -207,10 +209,12 @@ void register_var(VarBase &var) {
   std::lock_guard lock(st.mutex);
   auto [it, inserted] = st.registered.emplace(var.name(), &var);
   if (!inserted && it->second != &var) {
-    std::fprintf(stderr, "lucent::cvar: two CVars are both named '%s'\n", var.name().c_str());
+    lucent::log(lucent::Level::Error, "cvar", "two CVars are both named '" + var.name() + "'");
     std::abort();
   }
   var.registered_ = true;
+  var.env_name_ = var.options_.env_name.empty() ? derived_env_name_locked(st, var.name())
+                                                : var.options_.env_name;
   apply_pending_locked(st, var);
 }
 
@@ -218,7 +222,7 @@ void unregister_var(VarBase &var) {
   State &st = state();
   std::lock_guard lock(st.mutex);
   // Keep its value so save_file() still writes it and a later register restores it.
-  if (var.layer() != Layer::Default) {
+  if (var.persistable() && var.has(Layer::Value)) {
     st.stashed_value[var.name()] = var.dump_persistable();
   }
   st.registered.erase(var.name());
@@ -249,23 +253,28 @@ void load_file(const char *path) {
   }
   std::string line;
   while (std::getline(in, line)) {
-    std::string_view view = detail::trim(line);
+    std::string_view view = lucent::text::trim(line);
     if (view.empty() || view.front() == '#') {
       continue;
     }
     const auto eq = view.find('=');
     if (eq == std::string_view::npos) {
-      std::fprintf(stderr, "lucent::cvar: %s: ignoring line without '=': %.*s\n", path,
-                   static_cast<int>(view.size()), view.data());
+      lucent::log(lucent::Level::Warn, "cvar",
+                  std::string(path) + ": ignoring line without '=': " + std::string(view));
       continue;
     }
-    const std::string key(detail::trim(view.substr(0, eq)));
-    const std::string value(detail::trim(view.substr(eq + 1)));
+    const std::string key(lucent::text::trim(view.substr(0, eq)));
+    const std::string value(lucent::text::trim(view.substr(eq + 1)));
     if (key.empty()) {
       continue;
     }
     if (const auto it = st.registered.find(key); it != st.registered.end()) {
-      it->second->apply(value, Layer::Value);
+      if (it->second->persistable()) {
+        apply_reporting(*it->second, value, Layer::Value, path);
+      } else {
+        lucent::log(lucent::Level::Warn, "cvar",
+                    std::string(path) + ": " + key + " is run-only; ignored");
+      }
     } else {
       st.stashed_value[key] = value;
       st.preserved_unknowns[key] = value;
@@ -286,7 +295,9 @@ bool save_file(const char *path) {
            "environment < --set.\n";
     std::map<std::string, std::string> rows;
     for (const auto &[name, var] : st.registered) {
-      rows[name] = var->dump_persistable();
+      if (var->persistable()) {
+        rows[name] = var->dump_persistable();
+      }
     }
     for (const auto &[name, value] : st.preserved_unknowns) {
       rows.emplace(name, value); // registered wins if somehow both
@@ -312,7 +323,7 @@ void set_arg(std::string_view name, std::string_view value) {
   std::lock_guard lock(st.mutex);
   const std::string key(name);
   if (const auto it = st.registered.find(key); it != st.registered.end()) {
-    it->second->apply(value, Layer::Override);
+    apply_reporting(*it->second, value, Layer::Override, "--set");
   } else {
     st.stashed_override[key] = std::string(value);
   }
@@ -338,7 +349,8 @@ namespace {
 VarBase &require(const char *name) {
   VarBase *var = lucent::cvar::find(name ? name : "");
   if (!var) {
-    std::fprintf(stderr, "lucent_cvar: '%s' is not a registered CVar\n", name ? name : "(null)");
+    lucent::log(lucent::Level::Error, "cvar",
+                std::string{"'"} + (name ? name : "(null)") + "' is not a registered CVar");
     std::abort();
   }
   return *var;

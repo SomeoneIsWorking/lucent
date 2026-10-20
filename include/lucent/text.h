@@ -37,4 +37,10 @@ inline bool ascii_iequals(std::string_view left, std::string_view right) noexcep
   return true;
 }
 
+// Strip leading and trailing whitespace (std::isspace in the C locale).
+std::string_view trim(std::string_view value) noexcept;
+
+// `value` as a JSON string literal, quotes included; control bytes are escaped.
+std::string json_quote(std::string_view value);
+
 } // namespace lucent::text
