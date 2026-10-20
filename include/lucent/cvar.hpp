@@ -1,47 +1,45 @@
-// lucent/cvar.hpp — a layered configuration variable ("CVar").
+// lucent/cvar.hpp — layered configuration variables ("CVars").
 //
-// This is the heavier sibling of lucent/config.h. config.h is the env-only
-// primitive the logger resolves before main(); cvar builds ON it and adds the
-// two layers a program actually configures from:
+//     compiled default  <  config file  <  environment / --set  <  runtime
+//     (Var constructor)    (load_file)     (register_var, set_arg)  (set at Layer::Runtime)
 //
-//     compiled default  <  config file  <  environment  <  explicit override
-//     (Var constructor)    (load_file)     (config.h)      (set_arg / --set)
-//
-// A CVar is a global object of type Var<T>. Register it once at startup, then
-// read it anywhere:
-//
-//     lucent::cvar::Var<std::string> g_engine{"engine", "jit"};
-//     lucent::cvar::Var<bool>        g_jit_cache{"jit.cache", true};
-//
-//     lucent::cvar::set_prefix("X2_");     // "jit.cache" then reads X2_JIT_CACHE
-//     lucent::cvar::register_var(g_engine);
+//     lucent::cvar::Var<bool> g_jit_cache{"jit.cache", true};
+//     lucent::cvar::set_prefix("X2_");     // "jit.cache" reads X2_JIT_CACHE
 //     lucent::cvar::register_var(g_jit_cache);
-//     lucent::cvar::load_file(path);       // may run before or after register_var
-//     lucent::cvar::set_arg("jit.cache", "off");   // one --set token
-//
+//     lucent::cvar::load_file(path);
 //     if (!g_jit_cache.get()) ...
-//
-// Modelled on ~/repo/dusklight's ConfigVar system (src/dusk/config_var.hpp).
-// Two Dusklight features are deliberately left out for now, each a one-place
-// extension: the Speedrun layer (title-specific) and change subscriptions
-// (xmen2's consumers read once at init). See the notes at their call sites.
 #pragma once
 
+#include <array>
+#include <cstddef>
 #include <functional>
 #include <string>
 #include <string_view>
+#include <utility>
 
 namespace lucent::cvar {
 
-// Where a CVar's effective value is currently coming from. Higher wins.
+// Where a value comes from. Higher wins.
 enum class Layer : unsigned char {
   Default,  // the constructor argument
-  Value,    // a value read from the config file; the layer save_file() writes
-  Override, // environment or an explicit set_arg(); never persisted
+  Value,    // the config file; the only layer save_file() writes
+  Override, // environment or set_arg()
+  Runtime,  // set by the running program for this run
+};
+inline constexpr std::size_t kLayerCount = 4;
+
+enum class Persistence : unsigned char {
+  Saved,   // load_file() fills the Value layer and save_file() writes it
+  RunOnly, // never read from or written to the config file
 };
 
-// Non-template base so the registry can hold every CVar and the file/arg
-// loaders can push strings into one without knowing its type.
+struct Options {
+  Persistence persistence = Persistence::Saved;
+  // Environment variable read verbatim instead of the prefixed, upper-cased name.
+  std::string env_name;
+};
+
+// Non-template base so the registry and the loaders can hold every CVar.
 class VarBase {
 public:
   VarBase(const VarBase &) = delete;
@@ -51,33 +49,44 @@ public:
   [[nodiscard]] const std::string &name() const noexcept {
     return name_;
   }
-  [[nodiscard]] Layer layer() const noexcept {
-    return layer_;
+  [[nodiscard]] bool persistable() const noexcept {
+    return options_.persistence == Persistence::Saved;
   }
   [[nodiscard]] bool registered() const noexcept {
     return registered_;
   }
+  // The environment variable this CVar reads; empty until registered.
+  [[nodiscard]] const std::string &env_name() const noexcept {
+    return env_name_;
+  }
 
-  // Parse `text` and apply it at the named layer. A parse failure is reported
-  // to stderr and leaves the CVar unchanged — a bad line in a config file must
-  // not silently reset a setting, and it must not abort the program either.
-  virtual void apply(std::string_view text, Layer at) = 0;
+  // The highest layer holding a value.
+  [[nodiscard]] Layer layer() const noexcept;
+  [[nodiscard]] bool has(Layer at) const noexcept {
+    return present_[static_cast<std::size_t>(at)];
+  }
 
-  // The current effective value, formatted for save_file(). Reads the Value
-  // layer (or the Default when no file/override touched it) — never a
-  // non-persistable Override.
-  [[nodiscard]] virtual std::string dump_persistable() const = 0;
+  // Parse `text` and store it at `at`. On a parse failure nothing changes and false is returned.
+  virtual bool apply(std::string_view text, Layer at) = 0;
+  // Drop the value at `at`; the Default layer cannot be cleared.
+  void clear(Layer at) noexcept;
 
-  // The current effective value as a string, INCLUDING an active Override. The
-  // returned reference is backed by an internal cache and stays valid until the
-  // next call on this CVar; it is how the C ABI (cvar_c.h) reads a value.
+  // The value stored at `at`, formatted; empty when that layer holds none.
+  [[nodiscard]] virtual std::string layer_string(Layer at) const = 0;
+  // The Value layer, else the Default: what save_file() writes.
+  [[nodiscard]] std::string dump_persistable() const {
+    return layer_string(has(Layer::Value) ? Layer::Value : Layer::Default);
+  }
+  // The effective value, formatted. Valid until the next call on this CVar.
   [[nodiscard]] virtual const std::string &effective_string() const = 0;
 
 protected:
-  VarBase(std::string name);
+  VarBase(std::string name, Options options);
 
   std::string name_;
-  Layer layer_ = Layer::Default;
+  Options options_;
+  std::string env_name_;
+  std::array<bool, kLayerCount> present_{true, false, false, false};
   bool registered_ = false;
 
   friend void register_var(VarBase &);
@@ -93,63 +102,46 @@ std::string format(bool value);
 std::string format(long value);
 std::string format(double value);
 std::string format(const std::string &value);
-void report_parse_failure(const std::string &name, std::string_view text);
 } // namespace detail
 
 template <class T> class Var final : public VarBase {
 public:
-  explicit Var(std::string name, T default_value = T{})
-      : VarBase(std::move(name)), default_(std::move(default_value)), value_(default_),
-        override_(default_) {
+  explicit Var(std::string name, T default_value = T{}, Options options = {})
+      : VarBase(std::move(name), std::move(options)) {
+    slots_[0] = std::move(default_value);
   }
 
-  // Not guaranteed to stay current across a later mutation, but always sound.
   [[nodiscard]] const T &get() const noexcept {
-    switch (layer_) {
-    case Layer::Default:
-      return default_;
-    case Layer::Value:
-      return value_;
-    case Layer::Override:
-      return override_;
-    }
-    return default_;
+    return slots_[static_cast<std::size_t>(layer())];
   }
   operator const T &() const noexcept {
     return get();
   }
   [[nodiscard]] const T &default_value() const noexcept {
-    return default_;
+    return slots_[0];
+  }
+  // The value at `at`, or null when that layer holds none.
+  [[nodiscard]] const T *at(Layer layer) const noexcept {
+    return has(layer) ? &slots_[static_cast<std::size_t>(layer)] : nullptr;
   }
 
-  // Runtime change by the program (a settings screen). Stored at the Value
-  // layer; save_file() will persist it. Does not disturb an active Override.
-  void set(T v) {
-    value_ = std::move(v);
-    if (layer_ != Layer::Override) {
-      layer_ = Layer::Value;
-    }
+  void set(T value, Layer at = Layer::Value) {
+    const auto index = static_cast<std::size_t>(at);
+    slots_[index] = std::move(value);
+    present_[index] = true;
   }
 
-  void apply(std::string_view text, Layer at) override {
+  bool apply(std::string_view text, Layer at) override {
     T parsed{};
     if (!detail::parse(text, parsed)) {
-      detail::report_parse_failure(name_, text);
-      return;
+      return false;
     }
-    if (at == Layer::Override) {
-      override_ = std::move(parsed);
-      layer_ = Layer::Override;
-    } else {
-      value_ = std::move(parsed);
-      if (layer_ != Layer::Override) {
-        layer_ = Layer::Value;
-      }
-    }
+    set(std::move(parsed), at);
+    return true;
   }
 
-  [[nodiscard]] std::string dump_persistable() const override {
-    return detail::format(layer_ == Layer::Default ? default_ : value_);
+  [[nodiscard]] std::string layer_string(Layer at) const override {
+    return has(at) ? detail::format(slots_[static_cast<std::size_t>(at)]) : std::string();
   }
 
   [[nodiscard]] const std::string &effective_string() const override {
@@ -158,50 +150,39 @@ public:
   }
 
 private:
-  T default_;
-  T value_;
-  T override_;
+  std::array<T, kLayerCount> slots_{};
   mutable std::string str_cache_;
 };
 
-// The prefix applied to a CVar's name before it is looked up in the
-// environment: "jit.cache" with prefix "X2_" reads X2_JIT_CACHE ('.' and '-'
-// become '_', the rest upper-cased). Set once at startup, before register_var.
+// Prefix for derived environment names: "jit.cache" with "X2_" reads X2_JIT_CACHE ('.' and '-'
+// become '_', letters are upper-cased). Set once at startup, before register_var.
 void set_prefix(std::string_view prefix);
 [[nodiscard]] std::string_view prefix();
 
-// Make the config system aware of a CVar. Applies, in order: any value and any
-// override that a load_file() / set_arg() call already stashed for this name,
-// then the environment (via lucent::config) at the Override layer.
+// Make the registry aware of a CVar and apply, in order, a stashed file value, the environment and
+// a stashed set_arg(). An environment value that does not parse is logged and ignored.
 void register_var(VarBase &var);
 
-// Detach a CVar (so a Var can be destroyed). Its persistable value is kept as an
-// unregistered key: save_file() still writes it and a later register_var()
-// restores it.
+// Detach a CVar. A persistable value is kept, so save_file() still writes it and a later
+// register_var() restores it.
 void unregister_var(VarBase &var);
 
-// Look up a registered CVar by name. Null if there is none.
 [[nodiscard]] VarBase *find(std::string_view name);
-
-// Call `fn` for every registered CVar.
 void enumerate(const std::function<void(VarBase &)> &fn);
 
-// Load `name = value` lines (‘#’ starts a comment, surrounding space ignored)
-// at the Value layer. A key with no registered CVar yet is stashed and applied
-// when that CVar registers. Keys not recognised at save time are written back
-// verbatim so an older binary cannot drop a newer build's settings.
+// Load `name = value` lines ('#' starts a comment) at the Value layer. A key with no registered
+// CVar is stashed for a later register_var() and written back by save_file().
 void load_file(const char *path);
 
-// Write every registered CVar's persistable value plus every preserved unknown
-// key to `path`. Returns false (and leaves any existing file untouched) on an
-// I/O error.
+// Write every persistable CVar's file value plus every preserved unknown key. False, leaving any
+// existing file untouched, on an I/O error.
 bool save_file(const char *path);
 
-// Apply one explicit override, e.g. from a `--set name=value` launch argument.
-// Highest layer; wins over the environment. Stashed if `name` is not registered.
+// Apply one explicit override (a `--set name=value` argument) at the Override layer. Stashed if
+// `name` is not registered.
 void set_arg(std::string_view name, std::string_view value);
 
-// Forget stashed keys and the prefix. For tests.
+// Forget stashed keys and the prefix.
 void reset_for_test();
 
 } // namespace lucent::cvar
