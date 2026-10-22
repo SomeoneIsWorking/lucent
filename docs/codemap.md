@@ -64,7 +64,9 @@ tools/           non-mutating Python quality and structure gates
 - Route Android/SDL3 touch contacts into stable virtual-control zones: `lucent::touch::Router` in
   `include/lucent/touch.h`; the consumer supplies the layout, safe-area policy, and action mapping.
 - Resolve a per-application user-data directory: `lucent::platform::user_data_directory` in
-  `include/lucent/platform.h`, or the C wrappers in `include/lucent/platform_c.h`.
+  `include/lucent/platform.h`, or the C wrappers in `include/lucent/platform_c.h`. Per-OS data,
+  cache and runtime directories from a supplied `Environment`: `resolve_data_directory`,
+  `resolve_cache_directory`, `resolve_runtime_directory` in the same header.
 - Extract a user-selected ZIP install safely: `lucent::zip::extract_unique_install` in
   `include/lucent/zip.h` searches direct entries and one nested ZIP through a consumer-owned content
   matcher, then atomically publishes the archive level containing the unique match. Use

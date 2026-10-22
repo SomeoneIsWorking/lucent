@@ -8,6 +8,7 @@
 
 #ifndef _WIN32
 #include <sys/stat.h>
+#include <unistd.h>
 #endif
 
 namespace lucent::platform {
@@ -88,6 +89,74 @@ std::optional<std::filesystem::path> resolve_user_data_directory(std::string_vie
 #endif
 }
 
+std::optional<std::filesystem::path> resolve_data_directory(std::string_view application_name,
+                                                            Environment environment) {
+#if defined(__ANDROID__)
+  (void)application_name;
+  (void)environment;
+  return std::nullopt;
+#elif defined(_WIN32) || defined(__APPLE__)
+  return resolve_user_data_directory(application_name, environment);
+#else
+  if (auto directory = child_directory(environment.xdg_data_home, application_name)) {
+    return directory;
+  }
+  if (auto share = child_directory(environment.home, ".local")) {
+    return child_directory(share->string() + "/share", application_name);
+  }
+  return std::nullopt;
+#endif
+}
+
+std::optional<std::filesystem::path> resolve_cache_directory(std::string_view application_name,
+                                                             Environment environment) {
+#if defined(__ANDROID__)
+  (void)application_name;
+  (void)environment;
+  return std::nullopt;
+#elif defined(_WIN32)
+  if (auto directory = child_directory(environment.local_appdata, application_name)) {
+    return *directory / "cache";
+  }
+  return std::nullopt;
+#elif defined(__APPLE__)
+  if (auto library = child_directory(environment.home, "Library")) {
+    return child_directory(library->string() + "/Caches", application_name);
+  }
+  return std::nullopt;
+#else
+  if (auto directory = child_directory(environment.xdg_cache_home, application_name)) {
+    return directory;
+  }
+  if (auto cache = child_directory(environment.home, ".cache")) {
+    return child_directory(cache->string(), application_name);
+  }
+  return std::nullopt;
+#endif
+}
+
+std::optional<std::filesystem::path> resolve_runtime_directory(std::string_view application_name,
+                                                               Environment environment) {
+#if defined(__ANDROID__)
+  (void)application_name;
+  (void)environment;
+  return std::nullopt;
+#elif defined(_WIN32)
+  if (auto temp = child_directory(environment.local_appdata, "Temp")) {
+    return child_directory(temp->string(), application_name);
+  }
+  return std::nullopt;
+#elif defined(__APPLE__)
+  return child_directory(environment.tmpdir, application_name);
+#else
+  if (auto directory = child_directory(environment.xdg_runtime_dir, application_name)) {
+    return directory;
+  }
+  // pam_systemd's default when the session did not export XDG_RUNTIME_DIR.
+  return child_directory("/run/user/" + std::to_string(::getuid()), application_name);
+#endif
+}
+
 std::optional<std::filesystem::path> user_data_directory(std::string_view application_name) {
   {
     std::lock_guard lock{override_mutex};
@@ -98,7 +167,11 @@ std::optional<std::filesystem::path> user_data_directory(std::string_view applic
   std::string home = environment_value("HOME");
   std::string config_home = environment_value("XDG_CONFIG_HOME");
   std::string appdata = environment_value("APPDATA");
-  return resolve_user_data_directory(application_name, {home, config_home, appdata});
+  Environment environment{};
+  environment.home = home;
+  environment.xdg_config_home = config_home;
+  environment.appdata = appdata;
+  return resolve_user_data_directory(application_name, environment);
 }
 
 bool set_user_data_directory(std::filesystem::path directory) {

@@ -200,6 +200,13 @@ macOS, and `APPDATA` on Windows. The application name is validated as one path c
 `ensure_user_data_directory` after resolution to create it with owner-only permissions where the
 platform supports them.
 
+The pure resolvers `resolve_data_directory`, `resolve_cache_directory` and
+`resolve_runtime_directory` take the same `Environment`, filled by the application's own config
+owner: data is `XDG_DATA_HOME` or `$HOME/.local/share` on Linux and the user-data directory on macOS
+and Windows; the cache is `XDG_CACHE_HOME` or `$HOME/.cache`, `$HOME/Library/Caches`, or
+`LOCALAPPDATA\<name>\cache`; runtime files go under `XDG_RUNTIME_DIR` or `/run/user/<uid>`,
+`TMPDIR`, or `LOCALAPPDATA\Temp`. Each returns nothing on Android, whose Activity owns its paths.
+
 Android applications are consumers of the separate `android-port` framework. Native Lucent APIs have no Android environment fallback; an Activity supplies its absolute user-data root
 through `lucent_platform_set_user_data_directory()` from `platform_c.h`; the C wrappers are for
 applications whose entry point is written in C. Lucent does not own document pickers, URI copying,
