@@ -28,6 +28,11 @@ lucent::content::Sha256 hash_text(std::string_view text) {
   return lucent::content::sha256(std::as_bytes(std::span(text.data(), text.size())));
 }
 
+std::string sha512_text(std::string_view text) {
+  return lucent::content::sha512_hex(
+      lucent::content::sha512(std::as_bytes(std::span(text.data(), text.size()))));
+}
+
 struct SmallStackResult {
   bool hashed = false;
   bool reported_missing = false;
@@ -101,6 +106,18 @@ int main(int argc, char **argv) {
               hash_text("abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq")) ==
               "248d6a61d20638b8e5c026930c3e6039a33ce45964ff2167f6ecedd419db06c1",
           "multi-block SHA-256 vector disagrees");
+    check(sha512_text("") == "cf83e1357eefb8bdf1542850d66d8007d620e4050b5715dc83f4a921d36ce9ce"
+                             "47d0d13c5d85f2b0ff8318d2877eec2f63b931bd47417a81a538327af927da3e",
+          "empty SHA-512 vector disagrees");
+    check(sha512_text("abc") == "ddaf35a193617abacc417349ae20413112e6fa4e89a97ea20a9eeee64b55d39a"
+                                "2192992a274fc1a836ba3c23a3feebbd454d4423643ce80e2a9ac94fa54ca49f",
+          "abc SHA-512 vector disagrees");
+    check(
+        sha512_text("abcdefghbcdefghicdefghijdefghijkefghijklfghijklmghijklmnhijklmnoijklmnopjklmno"
+                    "pqklmnopqrlmnopqrsmnopqrstnopqrstu") ==
+            "8e959b75dae313da8cf4f72814fc143f8f7779c6eb9f7fa17299aeadb6889018"
+            "501d289e4900f7e4331b99dec4b5433ac7d329eeb6dd26545e96e55b874be909",
+        "multi-block SHA-512 vector disagrees");
 
     check(argc == 2, "test fixture path was not supplied");
     if (argc == 2) {
@@ -118,7 +135,7 @@ int main(int argc, char **argv) {
       check_hashing_on_a_small_stack(argv[1]);
     }
 
-    std::cout << "content: " << 7 - failures << " of 7 checks passed\n";
+    std::cout << "content: " << 10 - failures << " of 10 checks passed\n";
     return failures == 0 ? 0 : 1;
   });
 }
