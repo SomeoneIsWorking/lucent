@@ -39,8 +39,8 @@ std::from_chars_result parse_real(const char *first, const char *last, Real &val
   if (in.fail()) {
     return {first, std::errc::invalid_argument};
   }
-  const std::streamoff read =
-      in.eof() ? static_cast<std::streamoff>(last - first) : static_cast<std::streamoff>(in.tellg());
+  const std::streamoff read = in.eof() ? static_cast<std::streamoff>(last - first)
+                                       : static_cast<std::streamoff>(in.tellg());
   value = parsed;
   return {first + read, std::errc{}};
 #endif
