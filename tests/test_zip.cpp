@@ -363,9 +363,26 @@ int main() {
       return 1;
     }
 
+    const auto single = make_archive({{"z", "single entry", 0}});
+    std::vector<std::uint8_t> single_content;
+    if (!lucent::zip::read_single_entry(std::span<const std::uint8_t>{single.data(), single.size()},
+                                        single_content, error) ||
+        std::string(single_content.begin(), single_content.end()) != "single entry") {
+      std::cerr << "single entry was not read: " << error << "\n";
+      return 1;
+    }
+    const auto several = make_archive();
+    if (lucent::zip::read_single_entry(
+            std::span<const std::uint8_t>{several.data(), several.size()}, single_content, error) ||
+        error.find("more than one file") == std::string::npos) {
+      std::cerr << "several entries were not refused: " << error << "\n";
+      return 1;
+    }
+
     std::filesystem::remove(archive);
     std::cout << "zip: direct and one-level nested content identity selected from path/bytes; "
-                 "atomic publication, corruption, ambiguity, depth, path, and aggregate budgets "
+                 "single-entry reads, atomic publication, corruption, ambiguity, depth, path, and "
+                 "aggregate budgets "
                  "validated\n";
     return 0;
   });

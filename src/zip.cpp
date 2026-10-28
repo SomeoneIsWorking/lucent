@@ -326,6 +326,38 @@ bool extract_archive(std::span<const std::uint8_t> archive,
   return extract_archive_reader(reader, destination, files, error, limits);
 }
 
+bool read_single_entry(std::span<const std::uint8_t> archive, std::vector<std::uint8_t> &content,
+                       std::string &error, ExtractionLimits limits) {
+  SpanArchive reader(archive);
+  Budget budget;
+  std::vector<Entry> archive_entries;
+  if (!entries(reader, archive_entries, limits, budget, error)) {
+    return false;
+  }
+  const Entry *file = nullptr;
+  for (const Entry &entry : archive_entries) {
+    if (entry.name.back() == '/') {
+      continue;
+    }
+    if (file != nullptr) {
+      error = "archive holds more than one file";
+      return false;
+    }
+    file = &entry;
+  }
+  if (file == nullptr) {
+    error = "archive holds no file";
+    return false;
+  }
+  Bytes unpacked;
+  if (!unpack_entry(reader, *file, unpacked, error)) {
+    return false;
+  }
+  content.swap(unpacked);
+  error.clear();
+  return true;
+}
+
 bool find_unique_file(const std::vector<std::filesystem::path> &files, const FileMatcher &matches,
                       std::filesystem::path &file, std::string &error) {
   if (!matches) {
