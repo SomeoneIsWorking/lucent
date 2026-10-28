@@ -51,4 +51,7 @@ bool set_user_data_directory(std::filesystem::path directory);
 // Create the directory and parents, then apply private owner-only permissions where supported.
 bool ensure_user_data_directory(const std::filesystem::path &directory, std::string &error);
 
+// Absolute path of the running executable; nullopt where the platform cannot say.
+std::optional<std::filesystem::path> executable_path();
+
 } // namespace lucent::platform

@@ -84,8 +84,12 @@ int main() {
     assert(std::filesystem::is_directory(temporary));
     assert(!lucent::platform::ensure_user_data_directory("relative", error));
     std::filesystem::remove_all(temporary);
+
+    auto executable = lucent::platform::executable_path();
+    assert(executable && executable->is_absolute() &&
+           std::filesystem::is_regular_file(*executable));
     std::cout << "platform: path resolution (config, data, cache, runtime), validation, override, "
-                 "and creation passed\n";
+                 "creation and executable path passed\n";
     return 0;
   });
 }

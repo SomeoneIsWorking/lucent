@@ -1,14 +1,21 @@
 #include "lucent/platform.h"
 #include "lucent/platform_c.h"
 
+#include <cstdint>
 #include <cstdlib>
 #include <mutex>
+#include <string>
 #include <system_error>
 #include <utility>
 
-#ifndef _WIN32
+#ifdef _WIN32
+#include <windows.h>
+#else
 #include <sys/stat.h>
 #include <unistd.h>
+#endif
+#ifdef __APPLE__
+#include <mach-o/dyld.h>
 #endif
 
 namespace lucent::platform {
@@ -205,6 +212,44 @@ bool ensure_user_data_directory(const std::filesystem::path &directory, std::str
   }
 #endif
   return true;
+}
+
+std::optional<std::filesystem::path> executable_path() {
+  std::error_code status;
+#if defined(_WIN32)
+  std::wstring path(MAX_PATH, L'\0');
+  while (true) {
+    DWORD length = GetModuleFileNameW(nullptr, path.data(), static_cast<DWORD>(path.size()));
+    if (length == 0) {
+      return std::nullopt;
+    }
+    if (length < path.size()) {
+      path.resize(length);
+      return std::filesystem::path(path);
+    }
+    path.resize(path.size() * 2);
+  }
+#elif defined(__APPLE__)
+  std::uint32_t size = 0;
+  _NSGetExecutablePath(nullptr, &size);
+  std::string path(size, '\0');
+  if (_NSGetExecutablePath(path.data(), &size) != 0) {
+    return std::nullopt;
+  }
+  path.resize(std::char_traits<char>::length(path.c_str()));
+  std::filesystem::path resolved = std::filesystem::canonical(path, status);
+#elif defined(__linux__)
+  std::filesystem::path resolved = std::filesystem::read_symlink("/proc/self/exe", status);
+#else
+  std::filesystem::path resolved;
+  status = std::make_error_code(std::errc::function_not_supported);
+#endif
+#if !defined(_WIN32)
+  if (status || resolved.empty()) {
+    return std::nullopt;
+  }
+  return resolved;
+#endif
 }
 
 } // namespace lucent::platform
