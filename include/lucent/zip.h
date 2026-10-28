@@ -43,6 +43,11 @@ bool extract_archive(std::span<const std::uint8_t> archive,
                      std::vector<std::filesystem::path> &files, std::string &error,
                      ExtractionLimits limits = {});
 
+// Read an archive that holds exactly one regular file (directories aside) into memory, decompressed
+// and CRC-checked. The entry is bounded by limits.max_entry_bytes.
+bool read_single_entry(std::span<const std::uint8_t> archive, std::vector<std::uint8_t> &content,
+                       std::string &error, ExtractionLimits limits = {});
+
 // Select exactly one extracted file using consumer-owned identity policy. The matcher can inspect
 // file content; Lucent owns only the zero/ambiguous-match contract.
 bool find_unique_file(const std::vector<std::filesystem::path> &files, const FileMatcher &matches,
