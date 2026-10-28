@@ -209,8 +209,6 @@ std::FILE *stream_locked() {
   const std::string &path = config::log_file_path();
   if (!path.empty()) {
     if (std::FILE *f = open_append_file(path)) {
-      // Line-buffered so `tail -f` shows progress and a crash does not swallow the last lines.
-      std::setvbuf(f, nullptr, _IOLBF, 0);
       state().stream = f;
       return state().stream;
     }
@@ -325,6 +323,9 @@ void log(Level level, std::string_view channel, std::string_view message) {
   std::FILE *out = stream_locked();
   std::fwrite(line.data(), 1, line.size(), out);
   std::fputc('\n', out);
+  // Flushed per line so `tail -f` shows progress and a crash does not swallow the last lines. Not
+  // setvbuf(_IOLBF): the Windows CRT has no line buffering and rejects a zero size as invalid.
+  std::fflush(out);
 }
 
 namespace detail {
