@@ -25,6 +25,7 @@ add_library(lucent STATIC
   src/log.cpp
   src/log_c.cpp
   src/platform.cpp
+  src/rotation.cpp
   src/text.cpp
   src/touch.cpp
   src/version.cpp
