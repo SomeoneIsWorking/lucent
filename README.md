@@ -217,7 +217,9 @@ or application-specific install validation.
 By default stderr, or a file if `LUCENT_LOG_FILE` is set (appended, line-buffered so `tail -f` works
 and a crash does not swallow the last lines). Every emitted record begins with a millisecond UTC
 timestamp in ISO 8601 form, so output from different hosts can be correlated without guessing their
-local time zones.
+local time zones. A program that has no stderr (a Windows GUI program started without a console)
+names its default file with `lucent::set_default_log_file(path)`; `LUCENT_LOG_FILE` still wins. On
+Windows the file stays readable by other programs while it is written.
 
 In tests, install a sink and assert on real output:
 
