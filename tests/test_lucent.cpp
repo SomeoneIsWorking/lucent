@@ -16,6 +16,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <typeinfo>
 #include <vector>
 
 // libc++ compiles std::format but does not define __cpp_lib_format until every
@@ -556,6 +557,7 @@ void test_format_builds_a_string_without_emitting() {
 
 #if LUCENT_HAS_STD_FORMAT
 struct FormatsBadly {};
+struct FormatsWithoutLocale {};
 } // namespace
 
 template <> struct std::formatter<FormatsBadly> {
@@ -564,6 +566,17 @@ template <> struct std::formatter<FormatsBadly> {
   }
   auto format(const FormatsBadly &, std::format_context &context) const {
     throw std::format_error("no text for this value");
+    return context.out();
+  }
+};
+
+// A formatter failing with something other than format_error (MSVC STL locale lookup: bad_cast).
+template <> struct std::formatter<FormatsWithoutLocale> {
+  constexpr auto parse(std::format_parse_context &context) {
+    return context.begin();
+  }
+  auto format(const FormatsWithoutLocale &, std::format_context &context) const {
+    throw std::bad_cast();
     return context.out();
   }
 };
@@ -582,6 +595,20 @@ void test_a_format_that_fails_is_logged_not_thrown() {
   CHECK(!cap.lines.empty() &&
         without_timestamp(cap.lines.front()) ==
             "[fmtfail:error] format failed (no text for this value): value {}");
+}
+
+void test_a_formatter_that_throws_otherwise_is_logged_not_thrown() {
+  Capture cap;
+  bool threw = false;
+  try {
+    lucent::warn("fmtcast", "value {}", FormatsWithoutLocale{});
+  } catch (const std::bad_cast &) {
+    threw = true;
+  }
+  CHECK(!threw);
+  CHECK(cap.lines.size() == 1);
+  CHECK(!cap.lines.empty() &&
+        without_timestamp(cap.lines.front()).starts_with("[fmtcast:warn] format failed ("));
 }
 #endif
 
@@ -631,6 +658,7 @@ int run_tests() {
   test_format_builds_a_string_without_emitting();
 #if LUCENT_HAS_STD_FORMAT
   test_a_format_that_fails_is_logged_not_thrown();
+  test_a_formatter_that_throws_otherwise_is_logged_not_thrown();
 #endif
   test_c_logging_api();
 

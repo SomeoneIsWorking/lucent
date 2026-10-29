@@ -41,6 +41,7 @@
 
 #include <atomic>
 #include <cstdint>
+#include <exception>
 #include <functional>
 #include <string>
 #include <string_view>
@@ -158,20 +159,18 @@ template <class... Args> using FormatString = std::format_string<Args...>;
 template <class... Args> std::string format(FormatString<Args...> fmt, Args &&...args) {
   return std::format(fmt, std::forward<Args>(args)...);
 }
-using FormatError = std::format_error;
 #else
 template <class... Args> using FormatString = fmt::format_string<Args...>;
 template <class... Args> std::string format(FormatString<Args...> fmt, Args &&...args) {
   return fmt::format(fmt, std::forward<Args>(args)...);
 }
-using FormatError = fmt::format_error;
 #endif
 
 // What a level helper emits: a formatter that throws is reported in the line, never to the caller.
 template <class... Args> std::string message(FormatString<Args...> fmt, Args &&...args) {
   try {
     return detail::format(fmt, std::forward<Args>(args)...);
-  } catch (const FormatError &failure) {
+  } catch (const std::exception &failure) { // format_error, or a locale facet's bad_cast
     return std::string("format failed (") + failure.what() + "): " + std::string(fmt.get());
   }
 }
