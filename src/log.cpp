@@ -14,6 +14,9 @@
 #if defined(__ANDROID__)
 #include <android/log.h>
 #endif
+#ifdef _WIN32
+#include <share.h>
+#endif
 
 namespace lucent {
 
@@ -33,6 +36,7 @@ struct State {
   std::mutex mutex;
   Sink sink;                                // empty -> default file/stderr sink
   std::FILE *stream = nullptr;              // resolved once, on first use
+  std::string default_file;                 // used without LUCENT_LOG_FILE and stderr
   std::unordered_set<std::string> channels; // explicitly enabled channels
   bool all_channels = false;
   bool channels_loaded = false;
@@ -151,13 +155,19 @@ bool channel_enabled_locked(std::string_view channel) {
 
 std::FILE *open_append_file(const std::string &path) {
 #ifdef _WIN32
-  std::FILE *stream = nullptr;
-  if (fopen_s(&stream, path.c_str(), "a") != 0) {
-    return nullptr;
-  }
-  return stream;
+  // fopen_s denies other programs the file; a log is read while it is written.
+  return _fsopen(path.c_str(), "a", _SH_DENYNO);
 #else
   return std::fopen(path.c_str(), "a");
+#endif
+}
+
+// A Windows GUI program's stderr has no handle behind it (its descriptor is -2).
+bool has_stderr() {
+#ifdef _WIN32
+  return _fileno(stderr) >= 0;
+#else
+  return true;
 #endif
 }
 
@@ -206,7 +216,8 @@ std::FILE *stream_locked() {
   if (state().stream) {
     return state().stream;
   }
-  const std::string &path = config::log_file_path();
+  const std::string &named = config::log_file_path();
+  const std::string &path = named.empty() && !has_stderr() ? state().default_file : named;
   if (!path.empty()) {
     if (std::FILE *f = open_append_file(path)) {
       state().stream = f;
@@ -434,6 +445,19 @@ void enable_channel(std::string_view channel, bool on) {
 void set_sink(Sink sink) {
   std::lock_guard lock(state().mutex);
   state().sink = std::move(sink);
+}
+
+void set_default_log_file(std::string path) {
+  std::lock_guard lock(state().mutex);
+  state().default_file = std::move(path);
+  if (!config::log_file_path().empty()) {
+    return;
+  }
+  if (state().stream != nullptr && state().stream != stderr) {
+    std::fclose(state().stream);
+  }
+  // Resolved again on the next line, whichever stream that picks.
+  state().stream = nullptr;
 }
 
 void Line::append(std::string_view piece) {
