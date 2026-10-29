@@ -289,7 +289,7 @@ std::string timestamp_now() {
 
 } // namespace
 
-void log(Level level, std::string_view channel, std::string_view message) {
+void log(Level level, std::string_view channel, std::string_view message) noexcept {
   // Leading newlines are blank-line separators a caller uses to set a banner apart. Emit them
   // before the prefix, otherwise the tag ends up stranded on the line above its own message.
   std::size_t lead = 0;

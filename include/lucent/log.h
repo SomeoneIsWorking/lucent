@@ -149,8 +149,9 @@ private:
 
 // ── Emitting ────────────────────────────────────────────────────────────────────────────────────
 // The formatting entry point. Prefer the level helpers below; this exists for code that computes a
-// level at runtime.
-void log(Level level, std::string_view channel, std::string_view message);
+// level at runtime. A log call never throws: a sink or an allocation that fails ends the
+// process.
+void log(Level level, std::string_view channel, std::string_view message) noexcept;
 
 #if LUCENT_HAS_FORMAT
 namespace detail {
@@ -201,20 +202,20 @@ void rearm_channels_from_env();
 
 #if LUCENT_HAS_FORMAT
 template <class... Args>
-void info(std::string_view channel, detail::FormatString<Args...> fmt, Args &&...args) {
+void info(std::string_view channel, detail::FormatString<Args...> fmt, Args &&...args) noexcept {
   log(Level::Info, channel, detail::message(fmt, std::forward<Args>(args)...));
 }
 template <class... Args>
-void warn(std::string_view channel, detail::FormatString<Args...> fmt, Args &&...args) {
+void warn(std::string_view channel, detail::FormatString<Args...> fmt, Args &&...args) noexcept {
   log(Level::Warn, channel, detail::message(fmt, std::forward<Args>(args)...));
 }
 template <class... Args>
-void error(std::string_view channel, detail::FormatString<Args...> fmt, Args &&...args) {
+void error(std::string_view channel, detail::FormatString<Args...> fmt, Args &&...args) noexcept {
   log(Level::Error, channel, detail::message(fmt, std::forward<Args>(args)...));
 }
 // Channel-gated. The format arguments are NOT evaluated when the channel is off.
 template <class... Args>
-void debug(std::string_view channel, detail::FormatString<Args...> fmt, Args &&...args) {
+void debug(std::string_view channel, detail::FormatString<Args...> fmt, Args &&...args) noexcept {
   if (!detail::channel_enabled(channel)) {
     return;
   }
@@ -224,19 +225,19 @@ void debug(std::string_view channel, detail::FormatString<Args...> fmt, Args &&.
 // The same four, taking a resolved Channel. Identical output; the debug() one gates on the cached
 // word instead of hashing the name. Migrating a call site is a matter of hoisting the literal.
 template <class... Args>
-void info(const Channel &channel, detail::FormatString<Args...> fmt, Args &&...args) {
+void info(const Channel &channel, detail::FormatString<Args...> fmt, Args &&...args) noexcept {
   log(Level::Info, channel.name(), detail::message(fmt, std::forward<Args>(args)...));
 }
 template <class... Args>
-void warn(const Channel &channel, detail::FormatString<Args...> fmt, Args &&...args) {
+void warn(const Channel &channel, detail::FormatString<Args...> fmt, Args &&...args) noexcept {
   log(Level::Warn, channel.name(), detail::message(fmt, std::forward<Args>(args)...));
 }
 template <class... Args>
-void error(const Channel &channel, detail::FormatString<Args...> fmt, Args &&...args) {
+void error(const Channel &channel, detail::FormatString<Args...> fmt, Args &&...args) noexcept {
   log(Level::Error, channel.name(), detail::message(fmt, std::forward<Args>(args)...));
 }
 template <class... Args>
-void debug(const Channel &channel, detail::FormatString<Args...> fmt, Args &&...args) {
+void debug(const Channel &channel, detail::FormatString<Args...> fmt, Args &&...args) noexcept {
   if (!channel.enabled()) {
     return;
   }
