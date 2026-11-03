@@ -220,8 +220,8 @@ private:
 };
 
 template <typename State>
-auto hash_file(const std::filesystem::path &path, std::string &error, const char *name)
-    -> std::optional<decltype(State{}.finish())> {
+std::optional<decltype(State{}.finish())> hash_file(const std::filesystem::path &path,
+                                                    std::string &error, const char *name) {
   std::ifstream input(path, std::ios::binary);
   if (!input) {
     error = std::string{"cannot open file for "} + name + ": " + path.string();
