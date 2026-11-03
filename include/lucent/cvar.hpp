@@ -73,10 +73,6 @@ public:
 
   // The value stored at `at`, formatted; empty when that layer holds none.
   [[nodiscard]] virtual std::string layer_string(Layer at) const = 0;
-  // The Value layer, else the Default: what save_file() writes.
-  [[nodiscard]] std::string dump_persistable() const {
-    return layer_string(has(Layer::Value) ? Layer::Value : Layer::Default);
-  }
   // The effective value, formatted. Valid until the next call on this CVar.
   [[nodiscard]] virtual const std::string &effective_string() const = 0;
 
@@ -174,8 +170,8 @@ void enumerate(const std::function<void(VarBase &)> &fn);
 // CVar is stashed for a later register_var() and written back by save_file().
 void load_file(const char *path);
 
-// Write every persistable CVar's file value plus every preserved unknown key. False, leaving any
-// existing file untouched, on an I/O error.
+// Write every persistable CVar that holds a Value layer, plus every preserved unknown key; a knob
+// left at its default is not written. False, leaving any existing file untouched, on an I/O error.
 bool save_file(const char *path);
 
 // Apply one explicit override (a `--set name=value` argument) at the Override layer. Stashed if

@@ -223,7 +223,7 @@ void unregister_var(VarBase &var) {
   std::lock_guard lock(st.mutex);
   // Keep its value so save_file() still writes it and a later register restores it.
   if (var.persistable() && var.has(Layer::Value)) {
-    st.stashed_value[var.name()] = var.dump_persistable();
+    st.stashed_value[var.name()] = var.layer_string(Layer::Value);
   }
   st.registered.erase(var.name());
   var.registered_ = false;
@@ -295,8 +295,8 @@ bool save_file(const char *path) {
            "environment < --set.\n";
     std::map<std::string, std::string> rows;
     for (const auto &[name, var] : st.registered) {
-      if (var->persistable()) {
-        rows[name] = var->dump_persistable();
+      if (var->persistable() && var->has(Layer::Value)) {
+        rows[name] = var->layer_string(Layer::Value);
       }
     }
     for (const auto &[name, value] : st.preserved_unknowns) {
