@@ -7,5 +7,8 @@ WarningsAsErrors: '*'
 HeaderFilterRegex: '.*[/\\](include|src|tests)[/\\].*'
 FormatStyle: file
 CheckOptions:
+  # Running out of memory ends the process: an allocator or a container refusing a size is not an escaping exception.
+  - key: bugprone-exception-escape.IgnoredExceptions
+    value: 'bad_alloc,bad_array_new_length,length_error'
   - key: readability-braces-around-statements.ShortStatementLines
     value: '0'

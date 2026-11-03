@@ -180,6 +180,29 @@ bool has_stderr() {
 #endif
 }
 
+// "cd, gpu" or "all"; spaces around a name are ignored. Caller holds state().mutex.
+void add_channel_list_locked(std::string_view list) {
+  while (true) {
+    const std::size_t comma = list.find(',');
+    std::string_view name(list.data(), comma == std::string_view::npos ? list.size() : comma);
+    while (!name.empty() && name.front() == ' ') {
+      name.remove_prefix(1);
+    }
+    while (!name.empty() && name.back() == ' ') {
+      name.remove_suffix(1);
+    }
+    if (name == "all") {
+      state().all_channels = true;
+    } else if (!name.empty()) {
+      state().channels.emplace(name);
+    }
+    if (comma == std::string_view::npos) {
+      return;
+    }
+    list.remove_prefix(comma + 1);
+  }
+}
+
 void load_channels_locked() {
   if (state().channels_loaded) {
     return;
@@ -197,27 +220,7 @@ void load_channels_locked() {
     refresh_any_enabled_locked();
     return;
   }
-  std::size_t start = 0;
-  while (start <= list.size()) {
-    std::size_t comma = list.find(',', start);
-    std::size_t end = (comma == std::string::npos) ? list.size() : comma;
-    std::string name = list.substr(start, end - start);
-    while (!name.empty() && name.front() == ' ') {
-      name.erase(name.begin());
-    }
-    while (!name.empty() && name.back() == ' ') {
-      name.pop_back();
-    }
-    if (name == "all") {
-      state().all_channels = true;
-    } else if (!name.empty()) {
-      state().channels.insert(std::move(name));
-    }
-    if (comma == std::string::npos) {
-      break;
-    }
-    start = comma + 1;
-  }
+  add_channel_list_locked(list);
   refresh_any_enabled_locked();
 }
 
@@ -307,6 +310,12 @@ std::string timestamp_now() {
   return text;
 }
 
+// A sink that throws ends the process, as the log() contract says.
+// NOLINTNEXTLINE(bugprone-exception-escape): never given an empty sink, so no bad_function_call
+void deliver_to_sink(const Sink &sink, Level level, std::string_view line) noexcept {
+  sink(level, line);
+}
+
 } // namespace
 
 void log(Level level, std::string_view channel, std::string_view message) noexcept {
@@ -316,7 +325,8 @@ void log(Level level, std::string_view channel, std::string_view message) noexce
   while (lead < message.size() && message[lead] == '\n') {
     ++lead;
   }
-  std::string_view body = message.substr(lead);
+  std::string_view body = message;
+  body.remove_prefix(lead);
 
   std::string line;
   line.reserve(body.size() + channel.size() + 36);
@@ -329,7 +339,7 @@ void log(Level level, std::string_view channel, std::string_view message) noexce
 
   std::lock_guard lock(state().mutex);
   if (state().sink) {
-    state().sink(level, line);
+    deliver_to_sink(state().sink, level, line);
     return;
   }
 #if defined(__ANDROID__)
@@ -413,28 +423,7 @@ void enable_channels(std::string_view list) {
   state().all_channels = false;
   state().channels_loaded = true;   // an explicit call wins over the environment
   state().channels_explicit = true; // ...and keeps winning across a later re-arm
-  std::string text(list);
-  std::size_t start = 0;
-  while (start <= text.size()) {
-    std::size_t comma = text.find(',', start);
-    std::size_t end = (comma == std::string::npos) ? text.size() : comma;
-    std::string name = text.substr(start, end - start);
-    while (!name.empty() && name.front() == ' ') {
-      name.erase(name.begin());
-    }
-    while (!name.empty() && name.back() == ' ') {
-      name.pop_back();
-    }
-    if (name == "all") {
-      state().all_channels = true;
-    } else if (!name.empty()) {
-      state().channels.insert(std::move(name));
-    }
-    if (comma == std::string::npos) {
-      break;
-    }
-    start = comma + 1;
-  }
+  add_channel_list_locked(list);
   refresh_any_enabled_locked();
 }
 
