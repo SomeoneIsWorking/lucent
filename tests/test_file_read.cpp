@@ -52,7 +52,8 @@ void replacement_at_open(const std::filesystem::path &path) {
   int opened = -1;
   auto *stream = lucent::file_read::detail::open_regular_file(
       path.c_str(), 128, &error, [&](const char *selected, int flags) {
-        require((flags & O_NONBLOCK) != 0 && (flags & O_CLOEXEC) != 0,
+        require((static_cast<unsigned>(flags) & O_NONBLOCK) != 0 &&
+                    (static_cast<unsigned>(flags) & O_CLOEXEC) != 0,
                 "Production open must prevent FIFO blocking and descriptor inheritance");
         require(std::filesystem::remove(path), "Could not replace regular fixture");
         require(mkfifo(path.c_str(), 0600) == 0, "Could not swap a FIFO at the open boundary");

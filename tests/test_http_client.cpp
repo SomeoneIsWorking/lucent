@@ -90,7 +90,7 @@ public:
       out.push_back(static_cast<char>(payload.size()));
     } else {
       out.push_back(static_cast<char>(126));
-      out.push_back(static_cast<char>((payload.size() >> 8) & 0xffu));
+      out.push_back(static_cast<char>((payload.size() >> 8U) & 0xffU));
       out.push_back(static_cast<char>(payload.size() & 0xffu));
     }
     send(out + payload);
@@ -107,9 +107,10 @@ public:
     std::string payload(second & 0x7fu, '\0');
     read(payload.data(), payload.size());
     for (std::size_t i = 0; i < payload.size(); ++i) {
-      payload[i] = static_cast<char>(payload[i] ^ mask[i % 4]);
+      payload[i] = static_cast<char>(static_cast<std::uint8_t>(payload[i]) ^
+                                     static_cast<std::uint8_t>(mask[i % 4]));
     }
-    return {static_cast<std::uint8_t>(header[0]) & 0x0f, payload};
+    return {static_cast<std::uint8_t>(header[0]) & 0x0fU, payload};
   }
 
 private:

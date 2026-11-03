@@ -9,6 +9,7 @@
 #include <cstring>
 #include <optional>
 #include <random>
+#include <span>
 #include <utility>
 
 namespace lucent::http {
@@ -28,6 +29,14 @@ constexpr std::uint8_t kOpClose = 0x8;
 constexpr std::uint8_t kOpPing = 0x9;
 constexpr std::uint8_t kOpPong = 0xA;
 
+// RFC 6455 5.3: payload byte i is XORed with mask byte i % 4, both ways.
+void apply_mask(std::span<char> payload, const std::array<char, 4> &mask) {
+  for (std::size_t i = 0; i < payload.size(); ++i) {
+    payload[i] = static_cast<char>(static_cast<std::uint8_t>(payload[i]) ^
+                                   static_cast<std::uint8_t>(mask[i % 4]));
+  }
+}
+
 std::array<std::uint8_t, 20> sha1(std::string_view text) {
   std::array<std::uint32_t, 5> h{0x67452301u, 0xEFCDAB89u, 0x98BADCFEu, 0x10325476u, 0xC3D2E1F0u};
   std::string padded{text};
@@ -36,14 +45,14 @@ std::array<std::uint8_t, 20> sha1(std::string_view text) {
     padded.push_back('\0');
   }
   const std::uint64_t bits = static_cast<std::uint64_t>(text.size()) * 8;
-  for (int shift = 56; shift >= 0; shift -= 8) {
-    padded.push_back(static_cast<char>((bits >> shift) & 0xffu));
+  for (std::size_t byte = 8; byte-- > 0;) {
+    padded.push_back(static_cast<char>((bits >> (byte * 8U)) & 0xffU));
   }
   for (std::size_t block = 0; block < padded.size(); block += 64) {
     std::array<std::uint32_t, 80> w{};
     for (std::size_t i = 0; i < 16; ++i) {
       for (std::size_t b = 0; b < 4; ++b) {
-        w[i] = (w[i] << 8) | static_cast<std::uint8_t>(padded[block + i * 4 + b]);
+        w[i] = (w[i] << 8U) | static_cast<std::uint8_t>(padded[block + i * 4 + b]);
       }
     }
     for (std::size_t i = 16; i < 80; ++i) {
@@ -91,12 +100,12 @@ std::string base64(const std::uint8_t *bytes, std::size_t size) {
       "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789+/";
   std::string out;
   for (std::size_t i = 0; i < size; i += 3) {
-    const std::uint32_t n = (std::uint32_t{bytes[i]} << 16) |
-                            (i + 1 < size ? std::uint32_t{bytes[i + 1]} << 8 : 0u) |
+    const std::uint32_t n = (std::uint32_t{bytes[i]} << 16U) |
+                            (i + 1 < size ? std::uint32_t{bytes[i + 1]} << 8U : 0U) |
                             (i + 2 < size ? std::uint32_t{bytes[i + 2]} : 0u);
-    out.push_back(alphabet[(n >> 18) & 63u]);
-    out.push_back(alphabet[(n >> 12) & 63u]);
-    out.push_back(i + 1 < size ? alphabet[(n >> 6) & 63u] : '=');
+    out.push_back(alphabet[(n >> 18U) & 63U]);
+    out.push_back(alphabet[(n >> 12U) & 63U]);
+    out.push_back(i + 1 < size ? alphabet[(n >> 6U) & 63U] : '=');
     out.push_back(i + 2 < size ? alphabet[n & 63u] : '=');
   }
   return out;
@@ -412,13 +421,13 @@ bool WebSocketClient::send_frame(std::uint8_t opcode, std::string_view payload,
   if (size < 126) {
     frame.push_back(static_cast<char>(kMask | size));
   } else if (size <= 0xffff) {
-    frame.push_back(static_cast<char>(kMask | 126));
-    frame.push_back(static_cast<char>((size >> 8) & 0xffu));
+    frame.push_back(static_cast<char>(kMask | 126U));
+    frame.push_back(static_cast<char>((size >> 8U) & 0xffU));
     frame.push_back(static_cast<char>(size & 0xffu));
   } else {
-    frame.push_back(static_cast<char>(kMask | 127));
-    for (int shift = 56; shift >= 0; shift -= 8) {
-      frame.push_back(static_cast<char>((static_cast<std::uint64_t>(size) >> shift) & 0xffu));
+    frame.push_back(static_cast<char>(kMask | 127U));
+    for (std::size_t byte = 8; byte-- > 0;) {
+      frame.push_back(static_cast<char>((static_cast<std::uint64_t>(size) >> (byte * 8U)) & 0xffU));
     }
   }
   std::random_device random;
@@ -427,9 +436,8 @@ bool WebSocketClient::send_frame(std::uint8_t opcode, std::string_view payload,
     byte = static_cast<char>(random() & 0xffu);
   }
   frame.append(mask.data(), mask.size());
-  for (std::size_t i = 0; i < size; ++i) {
-    frame.push_back(static_cast<char>(payload[i] ^ mask[i % 4]));
-  }
+  frame.append(payload);
+  apply_mask(std::span(frame).subspan(frame.size() - size), mask);
   std::string_view bytes = frame;
   while (!bytes.empty()) {
     const std::ptrdiff_t sent = detail::send_bytes(socket_, bytes.data(), bytes.size());
@@ -494,7 +502,7 @@ std::optional<std::string> WebSocketClient::receive_text(std::string &error) {
       }
       size = 0;
       for (std::size_t i = 0; i < width; ++i) {
-        size = (size << 8) | static_cast<std::uint8_t>(extended[i]);
+        size = (size << 8U) | static_cast<std::uint8_t>(extended[i]);
       }
     }
     if (message.size() + size > kMaxMessageBytes) {
@@ -511,9 +519,7 @@ std::optional<std::string> WebSocketClient::receive_text(std::string &error) {
       return std::nullopt;
     }
     if (masked) {
-      for (std::size_t i = 0; i < payload.size(); ++i) {
-        payload[i] = static_cast<char>(payload[i] ^ mask[i % 4]);
-      }
+      apply_mask(payload, mask);
     }
     const bool final_frame = (first & kFin) != 0;
     switch (opcode) {

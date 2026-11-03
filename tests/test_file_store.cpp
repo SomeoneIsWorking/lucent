@@ -47,7 +47,7 @@ Result finish(FileStore &store) {
 mode_t mode(const std::filesystem::path &path) {
   struct stat information = {};
   require(stat(path.c_str(), &information) == 0, "Could not inspect file permissions");
-  return information.st_mode & 0777;
+  return information.st_mode & 0777U;
 }
 
 void binary_and_isolation(const std::filesystem::path &parent) {

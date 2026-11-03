@@ -58,8 +58,8 @@ std::string random_name(std::string &error) {
   std::string result;
   result.reserve(random.size() * 2);
   for (const auto value : random) {
-    result.push_back(hex[value >> 4]);
-    result.push_back(hex[value & 15]);
+    result.push_back(hex[value >> 4U]);
+    result.push_back(hex[value & 15U]);
   }
   return result;
 }
@@ -86,7 +86,7 @@ std::string Directory::prepare() {
   std::string error;
   if (fstat(parent_descriptor_, &information) != 0) {
     error = system_error("Cannot inspect backing-file parent");
-  } else if (information.st_uid != geteuid() || (information.st_mode & 0022) != 0) {
+  } else if (information.st_uid != geteuid() || (information.st_mode & 0022U) != 0) {
     error = "Backing-file parent must be owned by the current user and not group/other writable";
   }
   std::string child;
