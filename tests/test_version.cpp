@@ -2,6 +2,7 @@
 // that must be right on every platform, kept away from any transport.
 
 #include <lucent/version.h>
+#include "test_environment.h"
 
 #include <iostream>
 #include <string_view>
@@ -93,13 +94,15 @@ void test_release_json() {
 } // namespace
 
 int main() {
-  test_parsing();
-  test_comparison();
-  test_release_json();
-  if (failures != 0) {
-    std::cerr << failures << " version check(s) failed\n";
-    return 1;
-  }
-  std::cout << "lucent version tests passed\n";
-  return 0;
+  return lucent::test::run_main([] {
+    test_parsing();
+    test_comparison();
+    test_release_json();
+    if (failures != 0) {
+      std::cerr << failures << " version check(s) failed\n";
+      return 1;
+    }
+    std::cout << "lucent version tests passed\n";
+    return 0;
+  });
 }

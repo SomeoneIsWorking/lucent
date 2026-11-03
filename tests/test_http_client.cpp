@@ -2,6 +2,7 @@
 #include "lucent/http_client.h"
 
 #include "http_socket.h"
+#include "test_environment.h"
 
 #include <array>
 #include <cstdint>
@@ -218,14 +219,16 @@ void test_websocket_rejects_a_wrong_accept() {
 } // namespace
 
 int main() {
-  test_accept_matches_rfc_example();
-  test_get_reads_a_server_response();
-  test_post_sends_its_body();
-  test_websocket_exchange();
-  test_websocket_rejects_a_wrong_accept();
-  if (g_failures != 0) {
-    return 1;
-  }
-  std::cout << "http client: all checks passed\n";
-  return 0;
+  return lucent::test::run_main([] {
+    test_accept_matches_rfc_example();
+    test_get_reads_a_server_response();
+    test_post_sends_its_body();
+    test_websocket_exchange();
+    test_websocket_rejects_a_wrong_accept();
+    if (g_failures != 0) {
+      return 1;
+    }
+    std::cout << "http client: all checks passed\n";
+    return 0;
+  });
 }
