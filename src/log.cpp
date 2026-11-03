@@ -171,11 +171,11 @@ bool has_stderr() {
 #ifdef _WIN32
   return _fileno(stderr) >= 0;
 #else
-  struct stat own{};
+  struct stat own = {};
   if (fstat(STDERR_FILENO, &own) != 0) {
     return false;
   }
-  struct stat null{};
+  struct stat null = {};
   return !(S_ISCHR(own.st_mode) && stat("/dev/null", &null) == 0 && own.st_rdev == null.st_rdev);
 #endif
 }
