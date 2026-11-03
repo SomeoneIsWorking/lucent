@@ -22,7 +22,7 @@ S007 is the current focus.
 | S007 | HTTP responses stream bounded files without loading complete media into memory | verified | S003 | G001 |
 | S008 | Typed configuration reads named application settings from portable process inputs | verified | — | G001 |
 | S009 | Bounded ZIP discovery and extraction safely imports exactly one selected payload | verified | S002, S004 | G001 |
-| S010 | Native CMake and CTest verification runs on supported desktop hosts without game assets | partial | S001, S002, S003, S004, S005, S007, S008, S009 | G001 |
+| S010 | Native CMake and CTest verification runs on supported desktop hosts without game assets | verified | S001, S002, S003, S004, S005, S007, S008, S009 | G001 |
 | S011 | Linux applications select one local file asynchronously through a native GTK chooser | partial | — | G001 |
 | S012 | Linux applications read regular files asynchronously within a strict byte budget | verified | — | G001 |
 | S013 | Linux applications stage immutable binary backing files asynchronously with bounded lifetime storage | verified | S002 | G001 |
@@ -84,7 +84,8 @@ Linux x64 and arm64, Windows x64, and macOS Intel and arm64. The Windows matrix 
 the core target without the optional zlib-backed ZIP target because the workflow has no pinned native
 zlib dependency; Linux and macOS exercise the ZIP target.
 
-Gap: the first hosted run for the workflow is still required before this item can be marked verified.
+Evidence: run 41717423899 at 33b49db passes all five jobs, including clang-tidy against Apple's libc++
+and Windows' STL and the small-stack hashing thread on arm64 Linux.
 Android application Java is intentionally outside Lucent. The shared `android-port` repository owns the
 framework and build/package boundary for consuming ports.
 
