@@ -1,6 +1,7 @@
 #include <lucent/content.h>
 #include "test_environment.h"
 
+#include <algorithm>
 #include <array>
 #include <cstddef>
 #include <filesystem>
@@ -10,6 +11,7 @@
 
 #ifndef _WIN32
 #include <pthread.h>
+#include <unistd.h>
 #endif
 
 namespace {
@@ -33,63 +35,70 @@ std::string sha512_text(std::string_view text) {
       lucent::content::sha512(std::as_bytes(std::span(text.data(), text.size()))));
 }
 
-struct SmallStackResult {
-  bool hashed = false;
-  bool reported_missing = false;
-  std::string digest;
-};
-
-void *hash_from_small_stack(void *argument) {
-  auto *result = static_cast<SmallStackResult *>(argument);
-  const std::filesystem::path fixture = result->digest;
-  std::string error;
-  if (const auto value = lucent::content::sha256_file(fixture, error)) {
-    result->hashed = true;
-    result->digest = lucent::content::sha256_hex(*value);
+// Runs body to completion on a new thread whose stack is stack_bytes, raised to the platform's
+// minimum thread stack; false if no such thread could be started.
+template <typename Body> bool run_on_sized_stack(std::size_t stack_bytes, Body &body) {
+#ifdef _WIN32
+  const auto entry = [](LPVOID argument) -> DWORD {
+    (*static_cast<Body *>(argument))();
+    return 0;
+  };
+  const HANDLE thread =
+      CreateThread(nullptr, stack_bytes, entry, &body, STACK_SIZE_PARAM_IS_A_RESERVATION, nullptr);
+  if (thread == nullptr) {
+    return false;
   }
-  result->reported_missing =
-      !lucent::content::sha256_file(fixture.parent_path() / "missing-small-stack", error) &&
-      !error.empty();
-  return nullptr;
+  WaitForSingleObject(thread, INFINITE);
+  CloseHandle(thread);
+  return true;
+#else
+  const auto entry = [](void *argument) -> void * {
+    (*static_cast<Body *>(argument))();
+    return nullptr;
+  };
+  const auto page = static_cast<std::size_t>(sysconf(_SC_PAGESIZE));
+  const auto minimum = static_cast<std::size_t>(sysconf(_SC_THREAD_STACK_MIN));
+  // glibc on arm64 refuses less than 128 KB; macOS wants whole pages.
+  const std::size_t size = (std::max(stack_bytes, minimum) + page - 1) / page * page;
+  pthread_attr_t attributes;
+  if (pthread_attr_init(&attributes) != 0) {
+    return false;
+  }
+  pthread_t thread;
+  const bool started = pthread_attr_setstacksize(&attributes, size) == 0 &&
+                       pthread_create(&thread, &attributes, entry, &body) == 0;
+  pthread_attr_destroy(&attributes);
+  if (started) {
+    pthread_join(thread, nullptr);
+  }
+  return started;
+#endif
 }
 
 // Hashing runs on whatever stack its caller is on, and a browser build gives a
 // thread only 64 KB of it, so the helper's own read buffer must not live there.
-// This thread is given exactly that much; the old 64 KB stack buffer faulted here.
 void check_hashing_on_a_small_stack(const std::filesystem::path &fixture) {
-  constexpr std::size_t kStackBytes = std::size_t{64} * 1024;
-  SmallStackResult result;
-  result.digest = fixture.string();
-#ifdef _WIN32
-  const HANDLE thread = reinterpret_cast<HANDLE>(_beginthreadex(
-      nullptr, static_cast<unsigned>(kStackBytes), hash_from_small_stack, &result, 0, nullptr));
-  if (thread == nullptr) {
+  constexpr std::size_t kBrowserStackBytes = std::size_t{64} * 1024;
+  bool hashed = false;
+  bool reported_missing = false;
+  std::string digest;
+  auto hash = [&] {
+    std::string error;
+    if (const auto value = lucent::content::sha256_file(fixture, error)) {
+      hashed = true;
+      digest = lucent::content::sha256_hex(*value);
+    }
+    reported_missing =
+        !lucent::content::sha256_file(fixture.parent_path() / "missing-small-stack", error) &&
+        !error.empty();
+  };
+  if (!run_on_sized_stack(kBrowserStackBytes, hash)) {
     check(false, "small-stack hashing thread could not be started");
     return;
   }
-  WaitForSingleObject(thread, INFINITE);
-  CloseHandle(thread);
-#else
-  pthread_attr_t attributes;
-  pthread_attr_init(&attributes);
-  if (pthread_attr_setstacksize(&attributes, kStackBytes) != 0) {
-    pthread_attr_destroy(&attributes);
-    check(false, "small-stack hashing thread could not be sized");
-    return;
-  }
-  pthread_t thread;
-  if (pthread_create(&thread, &attributes, hash_from_small_stack, &result) != 0) {
-    pthread_attr_destroy(&attributes);
-    check(false, "small-stack hashing thread could not be started");
-    return;
-  }
-  pthread_join(thread, nullptr);
-  pthread_attr_destroy(&attributes);
-#endif
-  check(result.hashed &&
-            result.digest == "a948904f2f0f479b8f8197694b30184b0d2ed1c1cd2a1ec0fb85d299a192a447",
-        "streamed SHA-256 on a 64 KB stack disagrees");
-  check(result.reported_missing, "missing file on a small stack did not return a diagnostic");
+  check(hashed && digest == "a948904f2f0f479b8f8197694b30184b0d2ed1c1cd2a1ec0fb85d299a192a447",
+        "streamed SHA-256 on a small stack disagrees");
+  check(reported_missing, "missing file on a small stack did not return a diagnostic");
 }
 
 } // namespace
