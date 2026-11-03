@@ -11,13 +11,21 @@
 #include <cctype>
 #include <condition_variable>
 #include <cstdlib>
+#include <filesystem>
+#include <fstream>
 #include <future>
 #include <iostream>
+#include <iterator>
 #include <mutex>
 #include <string>
 #include <thread>
 #include <typeinfo>
 #include <vector>
+
+#if !defined(_WIN32)
+#include <fcntl.h>
+#include <unistd.h>
+#endif
 
 // libc++ compiles std::format but does not define __cpp_lib_format until every
 // <chrono> and <ranges> formatter is finished. Detecting the formatted API from
@@ -505,6 +513,30 @@ void test_string_keyed_gate_does_not_wait_for_the_logger_mutex() {
   lucent::enable_channels("");
 }
 
+#if !defined(_WIN32) && !defined(__ANDROID__)
+// A stderr that is /dev/null, as launchd gives an app opened from Finder, is no stderr: the
+// default log file takes the lines.
+void test_default_log_file_replaces_a_null_stderr() {
+  const std::filesystem::path file = std::filesystem::temp_directory_path() /
+                                     ("lucent-default-" + std::to_string(getpid()) + ".log");
+  std::filesystem::remove(file);
+  const int kept = dup(STDERR_FILENO);
+  const int null = open("/dev/null", O_WRONLY);
+  CHECK(kept >= 0 && null >= 0);
+  dup2(null, STDERR_FILENO);
+  lucent::set_default_log_file(file.string());
+  lucent::info("default", "written without stderr");
+  lucent::set_default_log_file("");
+  dup2(kept, STDERR_FILENO);
+  close(null);
+  close(kept);
+  std::ifstream in{file};
+  const std::string text{std::istreambuf_iterator<char>{in}, std::istreambuf_iterator<char>{}};
+  CHECK(text.find("[default] written without stderr") != std::string::npos);
+  std::filesystem::remove(file);
+}
+#endif
+
 // The snapshot must AGREE with the set it is published from, through every mutation that can change
 // it. This is the correctness half of the change above: a stale snapshot would make a channel the
 // caller just enabled read as off (silently no logging) or one just disabled read as on. Both forms
@@ -661,6 +693,9 @@ int run_tests() {
   test_a_formatter_that_throws_otherwise_is_logged_not_thrown();
 #endif
   test_c_logging_api();
+#if !defined(_WIN32) && !defined(__ANDROID__)
+  test_default_log_file_replaces_a_null_stderr();
+#endif
 
   if (g_failures == 0) {
     std::cout << "all tests passed\n";

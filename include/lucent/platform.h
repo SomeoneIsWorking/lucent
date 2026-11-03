@@ -18,6 +18,7 @@ struct Environment {
   std::string_view local_appdata;
   // macOS' per-user TMPDIR.
   std::string_view tmpdir;
+  std::string_view xdg_state_home;
 };
 
 // Resolve the conventional per-application user-data directory for the supplied environment.
@@ -33,6 +34,12 @@ std::optional<std::filesystem::path> resolve_data_directory(std::string_view app
 // The application's cache: XDG_CACHE_HOME or $HOME/.cache on Linux, $HOME/Library/Caches on macOS,
 // LOCALAPPDATA/<name>/cache on Windows.
 std::optional<std::filesystem::path> resolve_cache_directory(std::string_view application_name,
+                                                             Environment environment);
+
+// Logs and other state a run leaves: XDG_STATE_HOME or $HOME/.local/state on Linux,
+// $HOME/Library/Logs on macOS, LOCALAPPDATA/<name>/state on Windows. Android has none: its
+// Activity gives its files directory.
+std::optional<std::filesystem::path> resolve_state_directory(std::string_view application_name,
                                                              Environment environment);
 
 // Per-login files such as sockets: XDG_RUNTIME_DIR or /run/user/<uid> on Linux, TMPDIR on macOS,

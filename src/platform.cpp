@@ -142,6 +142,33 @@ std::optional<std::filesystem::path> resolve_cache_directory(std::string_view ap
 #endif
 }
 
+std::optional<std::filesystem::path> resolve_state_directory(std::string_view application_name,
+                                                             Environment environment) {
+#if defined(__ANDROID__)
+  (void)application_name;
+  (void)environment;
+  return std::nullopt;
+#elif defined(_WIN32)
+  if (auto directory = child_directory(environment.local_appdata, application_name)) {
+    return *directory / "state";
+  }
+  return std::nullopt;
+#elif defined(__APPLE__)
+  if (auto library = child_directory(environment.home, "Library")) {
+    return child_directory(library->string() + "/Logs", application_name);
+  }
+  return std::nullopt;
+#else
+  if (auto directory = child_directory(environment.xdg_state_home, application_name)) {
+    return directory;
+  }
+  if (auto local = child_directory(environment.home, ".local")) {
+    return child_directory(local->string() + "/state", application_name);
+  }
+  return std::nullopt;
+#endif
+}
+
 std::optional<std::filesystem::path> resolve_runtime_directory(std::string_view application_name,
                                                                Environment environment) {
 #if defined(__ANDROID__)

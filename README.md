@@ -200,11 +200,12 @@ macOS, and `APPDATA` on Windows. The application name is validated as one path c
 `ensure_user_data_directory` after resolution to create it with owner-only permissions where the
 platform supports them.
 
-The pure resolvers `resolve_data_directory`, `resolve_cache_directory` and
-`resolve_runtime_directory` take the same `Environment`, filled by the application's own config
+The pure resolvers `resolve_data_directory`, `resolve_cache_directory`, `resolve_state_directory`
+and `resolve_runtime_directory` take the same `Environment`, filled by the application's own config
 owner: data is `XDG_DATA_HOME` or `$HOME/.local/share` on Linux and the user-data directory on macOS
 and Windows; the cache is `XDG_CACHE_HOME` or `$HOME/.cache`, `$HOME/Library/Caches`, or
-`LOCALAPPDATA\<name>\cache`; runtime files go under `XDG_RUNTIME_DIR` or `/run/user/<uid>`,
+`LOCALAPPDATA\<name>\cache`; logs and other state a run leaves are `XDG_STATE_HOME` or
+`$HOME/.local/state`, `$HOME/Library/Logs`, or `LOCALAPPDATA\<name>\state`; runtime files go under `XDG_RUNTIME_DIR` or `/run/user/<uid>`,
 `TMPDIR`, or `LOCALAPPDATA\Temp`. Each returns nothing on Android, whose Activity owns its paths.
 
 Android applications are consumers of the separate `android-port` framework. Native Lucent APIs have no Android environment fallback; an Activity supplies its absolute user-data root
@@ -217,8 +218,9 @@ or application-specific install validation.
 By default stderr, or a file if `LUCENT_LOG_FILE` is set (appended, line-buffered so `tail -f` works
 and a crash does not swallow the last lines). Every emitted record begins with a millisecond UTC
 timestamp in ISO 8601 form, so output from different hosts can be correlated without guessing their
-local time zones. A program that has no stderr (a Windows GUI program started without a console)
-names its default file with `lucent::set_default_log_file(path)`; `LUCENT_LOG_FILE` still wins. On
+local time zones. A program that has no stderr (a Windows GUI program started without a console,
+or one whose stderr is closed or `/dev/null`, as a macOS app opened from Finder) names its default
+file with `lucent::set_default_log_file(path)`; `LUCENT_LOG_FILE` still wins. On
 Windows the file stays readable by other programs while it is written.
 
 In tests, install a sink and assert on real output:

@@ -16,6 +16,9 @@
 #endif
 #ifdef _WIN32
 #include <share.h>
+#else
+#include <sys/stat.h>
+#include <unistd.h>
 #endif
 
 namespace lucent {
@@ -162,12 +165,18 @@ std::FILE *open_append_file(const std::string &path) {
 #endif
 }
 
-// A Windows GUI program's stderr has no handle behind it (its descriptor is -2).
+// A Windows GUI program's stderr has no handle behind it (its descriptor is -2); a macOS app
+// opened from Finder gets /dev/null from launchd.
 bool has_stderr() {
 #ifdef _WIN32
   return _fileno(stderr) >= 0;
 #else
-  return true;
+  struct stat own{};
+  if (fstat(STDERR_FILENO, &own) != 0) {
+    return false;
+  }
+  struct stat null{};
+  return !(S_ISCHR(own.st_mode) && stat("/dev/null", &null) == 0 && own.st_rdev == null.st_rdev);
 #endif
 }
 
