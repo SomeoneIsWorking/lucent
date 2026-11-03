@@ -25,6 +25,13 @@ int main() {
       std::cerr << "ASCII case-insensitive comparison accepted unequal names\n";
       ++failures;
     }
+    if (lucent::text::counted(1, "game") != "1 game" ||
+        lucent::text::counted(0, "game") != "0 games" ||
+        lucent::text::counted(2, "custom setting") != "2 custom settings" ||
+        lucent::text::counted(3, "Steam shortcut", "Steam shortcuts") != "3 Steam shortcuts") {
+      std::cerr << "counted named the wrong number of things\n";
+      ++failures;
+    }
     const std::string percent = "42.5% done";
     double real = 0.0;
     const auto [end, error] =

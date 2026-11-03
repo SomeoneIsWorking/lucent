@@ -49,4 +49,9 @@ std::from_chars_result from_chars_real(const char *first, const char *last, floa
 // `value` as a JSON string literal, quotes included; control bytes are escaped.
 std::string json_quote(std::string_view value);
 
+// "1 game", "2 games": the count and its English noun, `many` unless the count is one.
+std::string counted(std::size_t count, std::string_view one, std::string_view many);
+// The noun's plural is `one` with an "s".
+std::string counted(std::size_t count, std::string_view one);
+
 } // namespace lucent::text

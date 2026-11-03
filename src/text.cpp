@@ -89,4 +89,15 @@ std::string json_quote(std::string_view value) {
   return out;
 }
 
+std::string counted(std::size_t count, std::string_view one, std::string_view many) {
+  std::string out = std::to_string(count);
+  out += ' ';
+  out += count == 1 ? one : many;
+  return out;
+}
+
+std::string counted(std::size_t count, std::string_view one) {
+  return counted(count, one, std::string{one} + "s");
+}
+
 } // namespace lucent::text
