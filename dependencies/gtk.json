@@ -2,7 +2,7 @@
   "schemaVersion": 1,
   "repository": "https://github.com/SomeoneIsWorking/gtk.git",
   "ref": "main",
-  "revision": "8f063413a7e0b7812ee6bca9499ba733bf5bc79a",
+  "revision": "e7873b4d799c57733a18a49e60021486dfa57964",
   "upstreamBase": "6a0b360d473f7c546314738c0c8dd9829eb9d3c2",
   "purpose": "Preserve GTK3 native file-chooser focus lifecycle when embedded in a separately pumped renderer"
 }
