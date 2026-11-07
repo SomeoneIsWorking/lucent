@@ -307,3 +307,5 @@ static initialiser or a static destructor — the first line of the program to t
 ## License
 
 MIT.
+
+Built with AI assistance (Claude and other LLMs).
