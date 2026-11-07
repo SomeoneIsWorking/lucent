@@ -259,10 +259,13 @@ void enable_channel(std::string_view channel, bool on = true);
 using Sink = std::function<void(Level, std::string_view line)>;
 void set_sink(Sink sink);
 
-// Where output goes when LUCENT_LOG_FILE is unset and the process has no stderr (a Windows GUI
-// program started without a console): appended to `path`, which other programs may read while it
-// is open. An empty path restores stderr. A sink still wins.
-void set_default_log_file(std::string path);
+// Where lines go when no sink is installed and LUCENT_LOG_FILE is unset (that variable names the
+// one file instead). Without a file, lines go to the console whatever `console` says.
+struct LogOutputs {
+  std::string file;    // every line appended; readable by other programs while open; empty: none
+  bool console = true; // stderr when the process has one, logcat on Android
+};
+void set_log_outputs(LogOutputs outputs);
 
 // ── Building a line in pieces ───────────────────────────────────────────────────────────────────
 // Some output is a row assembled in a loop — a hex dump, a register grid, a column of counters. The

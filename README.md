@@ -218,10 +218,11 @@ or application-specific install validation.
 By default stderr, or a file if `LUCENT_LOG_FILE` is set (appended, line-buffered so `tail -f` works
 and a crash does not swallow the last lines). Every emitted record begins with a millisecond UTC
 timestamp in ISO 8601 form, so output from different hosts can be correlated without guessing their
-local time zones. A program that has no stderr (a Windows GUI program started without a console,
-or one whose stderr is closed or `/dev/null`, as a macOS app opened from Finder) names its default
-file with `lucent::set_default_log_file(path)`; `LUCENT_LOG_FILE` still wins. On
-Windows the file stays readable by other programs while it is written.
+local time zones. A program chooses its outputs with `lucent::set_log_outputs({.file, .console})`:
+every line is appended to the file, and with `console` also goes to stderr when the process has one
+(logcat on Android), so a Windows GUI program, a macOS app opened from Finder and an Android app
+whose vendor drops logcat lines all keep a log. `LUCENT_LOG_FILE` overrides the choice with that one
+file. On Windows the file stays readable by other programs while it is written.
 
 In tests, install a sink and assert on real output:
 

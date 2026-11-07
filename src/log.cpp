@@ -37,9 +37,10 @@ namespace {
 // destruction. A logger must work from the program's first line to its last.
 struct State {
   std::mutex mutex;
-  Sink sink;                                // empty -> default file/stderr sink
-  std::FILE *stream = nullptr;              // resolved once, on first use
-  std::string default_file;                 // used without LUCENT_LOG_FILE and stderr
+  Sink sink;                 // empty -> default file/stderr sink
+  std::FILE *file = nullptr; // the log file, opened on first use
+  bool file_resolved = false;
+  LogOutputs outputs;                       // the program's choice; LUCENT_LOG_FILE overrides it
   std::unordered_set<std::string> channels; // explicitly enabled channels
   bool all_channels = false;
   bool channels_loaded = false;
@@ -224,20 +225,23 @@ void load_channels_locked() {
   refresh_any_enabled_locked();
 }
 
-std::FILE *stream_locked() {
-  if (state().stream) {
-    return state().stream;
+// LUCENT_LOG_FILE, else the program's file; null when neither is named or it cannot be opened.
+std::FILE *file_locked() {
+  if (!state().file_resolved) {
+    state().file_resolved = true;
+    const std::string &named = config::log_file_path();
+    const std::string &path = named.empty() ? state().outputs.file : named;
+    state().file = path.empty() ? nullptr : open_append_file(path);
   }
-  const std::string &named = config::log_file_path();
-  const std::string &path = named.empty() && !has_stderr() ? state().default_file : named;
-  if (!path.empty()) {
-    if (std::FILE *f = open_append_file(path)) {
-      state().stream = f;
-      return state().stream;
-    }
-  }
-  state().stream = stderr;
-  return state().stream;
+  return state().file;
+}
+
+void write_line(std::FILE *out, std::string_view line) {
+  std::fwrite(line.data(), 1, line.size(), out);
+  std::fputc('\n', out);
+  // Flushed per line so `tail -f` shows progress and a crash does not swallow the last lines. Not
+  // setvbuf(_IOLBF): the Windows CRT has no line buffering and rejects a zero size as invalid.
+  std::fflush(out);
 }
 
 #if defined(__ANDROID__)
@@ -342,20 +346,22 @@ void log(Level level, std::string_view channel, std::string_view message) noexce
     deliver_to_sink(state().sink, level, line);
     return;
   }
-#if defined(__ANDROID__)
-  if (config::log_file_path().empty()) {
-    // logcat stamps and tags the entry itself, so it gets the body, not the composed line.
-    __android_log_write(android_priority(level), std::string(channel).c_str(),
-                        std::string(body).c_str());
+  std::FILE *file = file_locked();
+  if (file != nullptr) {
+    write_line(file, line);
+  }
+  if (file != nullptr && (!config::log_file_path().empty() || !state().outputs.console)) {
     return;
   }
+#if defined(__ANDROID__)
+  // logcat stamps and tags the entry itself, so it gets the body, not the composed line.
+  __android_log_write(android_priority(level), std::string(channel).c_str(),
+                      std::string(body).c_str());
+#else
+  if (file == nullptr || has_stderr()) {
+    write_line(stderr, line);
+  }
 #endif
-  std::FILE *out = stream_locked();
-  std::fwrite(line.data(), 1, line.size(), out);
-  std::fputc('\n', out);
-  // Flushed per line so `tail -f` shows progress and a crash does not swallow the last lines. Not
-  // setvbuf(_IOLBF): the Windows CRT has no line buffering and rejects a zero size as invalid.
-  std::fflush(out);
 }
 
 namespace detail {
@@ -445,17 +451,18 @@ void set_sink(Sink sink) {
   state().sink = std::move(sink);
 }
 
-void set_default_log_file(std::string path) {
+void set_log_outputs(LogOutputs outputs) {
   std::lock_guard lock(state().mutex);
-  state().default_file = std::move(path);
+  state().outputs = std::move(outputs);
   if (!config::log_file_path().empty()) {
     return;
   }
-  if (state().stream != nullptr && state().stream != stderr) {
-    std::fclose(state().stream);
+  if (state().file != nullptr) {
+    std::fclose(state().file);
   }
-  // Resolved again on the next line, whichever stream that picks.
-  state().stream = nullptr;
+  // Opened again on the next line.
+  state().file = nullptr;
+  state().file_resolved = false;
 }
 
 void Line::append(std::string_view piece) {
