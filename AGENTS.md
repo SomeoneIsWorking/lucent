@@ -1,9 +1,8 @@
 # Lucent guidance
 
-The repository-wide rules in `../AGENTS.md` apply here. Lucent owns small C++20 infrastructure
-that several projects would otherwise reimplement; its core remains dependency-free and optional
-`lucent::zip` adds zlib-backed archive extraction.
-Optional Linux `lucent::file_dialog` adds GTK3/GIO without changing core dependencies.
+Lucent owns small C++20 infrastructure that several projects would otherwise reimplement. Its core
+is dependency-free; optional `lucent::zip` adds zlib-backed archive extraction and optional Linux
+`lucent::file_dialog` adds GTK3/GIO.
 
 - `config` owns typed, cached environment configuration.
 - `cvar` owns layered configuration variables: a compiled default overridden by a `name = value`
@@ -33,5 +32,4 @@ Optional Linux `lucent::file_dialog` adds GTK3/GIO without changing core depende
   user-provided install archives. Consumers supply the destination and title-specific filename or
   content-identity matcher; game-specific archive layouts and validation do not belong in Lucent.
 
-Run `python3 tools/check_cpp_quality.py build` and `ctest --test-dir build` before landing.
-Update `docs/codemap.md` in the same commit when ownership changes.
+Full quality check: `python3 tools/check_cpp_quality.py build`. Tests: `ctest --test-dir build`.
