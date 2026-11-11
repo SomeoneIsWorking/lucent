@@ -8,7 +8,7 @@ title-neutral runtime capabilities once, with bounded behavior and tested owners
 
 ## Current focus
 
-S015 is the current focus.
+S016 is the current focus.
 
 ## Capability inventory
 
@@ -27,7 +27,7 @@ S015 is the current focus.
 | S012 | Linux applications read regular files asynchronously within a strict byte budget | verified | — | G001 |
 | S013 | Linux applications stage immutable binary backing files asynchronously with bounded lifetime storage | verified | S002 | G001 |
 | S014 | Programs measure their cost in units host load does not move: per-thread instructions or CPU time, summed across handoff threads, with count percentiles | verified | — | G001 |
-| S015 | Two players connect by a pasted code over direct UDP: STUN, NAT-PMP, UPnP, a reply code and hole punching, then an authenticated handshake and reliable link | partial: loopback tests (`ctest -R p2p`); NAT proof in openSU `tools.nat_lab` and openSU consuming it missing | S003 | G001 |
+| S015 | Two players connect by a pasted code over direct UDP: STUN, NAT-PMP, UPnP, a reply code and hole punching, then an authenticated handshake and reliable link | verified: `ctest -R p2p`, and openSU plays on it (openSU 4029764a) through every `tools.nat_lab` case, symmetric NATs failing as expected and `zerotier` connecting over a ZeroTier interface | S003 | G001 |
 | S016 | Embedded ZeroTier joins a controller-less ad-hoc network in-process and connects players whose direct paths fail | missing (plan 0006) | S015 | G001 |
 | S017 | Lobbies are published and listed on Nostr relays, with a self-hosted lobby as a config change away | missing (plan 0006) | S015 | G001 |
 | S018 | One title-neutral rollback engine runs a game's session over the transport | missing (plan 0006) | S015 | G001 |
