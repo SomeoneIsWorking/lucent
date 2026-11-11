@@ -245,6 +245,8 @@ void peers_match_lockstep(int count, bool star) {
   std::int64_t resimulated = 0;
   for (const Peer &peer : net.peers) {
     // The session keeps its newest final hashes.
+    assert(peer.session->finalized_frame() >= frames &&
+           peer.session->finalized_frame() <= peer.session->frame());
     for (std::int64_t frame = frames - 100; frame < frames; ++frame) {
       assert(peer.session->final_hash(frame) == truth[static_cast<std::size_t>(frame)]);
     }

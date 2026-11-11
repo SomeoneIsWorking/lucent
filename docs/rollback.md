@@ -34,7 +34,8 @@ arrived, `tick(local)` once, then sends `message_for(link)` on every link.
    earliest such frame is loaded and every frame up to the present re-runs with `resimulating`.
 4. The present frame is saved to `ring(frame) = frame % (max_rollback + 1)` and runs.
 5. Every frame that ran and has every input confirmed becomes final: the hash it ran to is kept
-   and compared with the peers'.
+   and compared with the peers'. `finalized_frame()` is the bound for reading `final_hash`;
+   `confirmed_frame()` can be past `frame()` with input delay, for frames that have not run.
 
 ## Wire (version 1, big-endian)
 

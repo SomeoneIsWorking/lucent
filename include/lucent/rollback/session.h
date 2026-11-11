@@ -78,8 +78,14 @@ public:
   std::int64_t frame() const noexcept {
     return frame_;
   }
-  // Every frame before this has every slot's input confirmed.
+  // Every frame before this has every slot's input confirmed; with input delay it can run ahead
+  // of `frame()`, so a confirmed frame may not have run yet.
   std::int64_t confirmed_frame() const noexcept;
+  // Every frame before this has run with every input confirmed, so `final_hash` has it (while the
+  // session keeps it).
+  std::int64_t finalized_frame() const noexcept {
+    return finalized_;
+  }
   std::optional<std::int64_t> desync_frame() const noexcept {
     return desync_frame_;
   }
