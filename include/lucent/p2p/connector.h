@@ -5,10 +5,8 @@
 #include <memory>
 #include <mutex>
 #include <optional>
-#include <stop_token>
 #include <string>
 #include <string_view>
-#include <thread>
 
 #include "lucent/p2p/descriptor.h"
 #include "lucent/p2p/direct.h"
@@ -16,6 +14,7 @@
 #include "lucent/p2p/path.h"
 #include "lucent/p2p/port_lease.h"
 #include "lucent/p2p/zerotier_paths.h"
+#include "lucent/worker.h"
 
 // Two people getting from a code to an authenticated path, on a thread of its own: this machine's
 // reach gathered, the code shown, then the other machine found by the handshake over each backend
@@ -115,8 +114,8 @@ public:
   std::unique_ptr<Connection> take();
 
 private:
-  void run(const std::stop_token &stop);
-  bool find(const std::stop_token &stop, std::unique_ptr<UdpPath> &path, DirectGathered &gathered);
+  void run(const StopToken &stop);
+  bool find(const StopToken &stop, std::unique_ptr<UdpPath> &path, DirectGathered &gathered);
   std::unique_ptr<Path> open_zerotier();
   void connect(std::unique_ptr<Path> path, const Found &found, std::unique_ptr<PortLease> lease);
   void fail(Failure failure);
@@ -132,7 +131,7 @@ private:
   View view_;
   std::optional<Descriptor> reply_;
   std::unique_ptr<Connection> connection_;
-  std::jthread worker_;
+  Worker worker_;
 };
 
 } // namespace lucent::p2p

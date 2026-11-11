@@ -178,12 +178,12 @@ std::unique_ptr<ZeroTierNode> ZeroTierNode::start(const ZeroTierConfig &config,
 }
 
 ZeroTierNode::ZeroTierNode(std::uint16_t network_port)
-    : network_port_{network_port}, joiner_{[this](const std::stop_token &stop) {
+    : network_port_{network_port}, joiner_{[this](const StopToken &stop) {
         join_when_online(stop);
       }} {
 }
 
-void ZeroTierNode::join_when_online(const std::stop_token &stop) const {
+void ZeroTierNode::join_when_online(const StopToken &stop) const {
   while (!stop.stop_requested()) {
     if (zts_node_is_online() == 1) {
       if (zts_net_join(adhoc_network(network_port_)) != ZTS_ERR_OK) {
@@ -202,7 +202,7 @@ ZeroTierNode::~ZeroTierNode() {
   zts_node_stop();
 }
 
-bool ZeroTierNode::wait_ready(const std::stop_token &stop, std::chrono::milliseconds wait) const {
+bool ZeroTierNode::wait_ready(const StopToken &stop, std::chrono::milliseconds wait) const {
   const auto until = Clock::now() + wait;
   while (!reach()) {
     if (stop.stop_requested() || Clock::now() >= until) {

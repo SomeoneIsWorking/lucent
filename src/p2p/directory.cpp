@@ -3,6 +3,7 @@
 #include "lucent/text.h"
 
 #include <algorithm>
+#include <chrono>
 
 namespace lucent::p2p {
 namespace {
@@ -20,6 +21,12 @@ std::optional<std::int64_t> integer_member(const json::Value &value, std::string
 }
 
 } // namespace
+
+std::int64_t unix_seconds() {
+  return std::chrono::duration_cast<std::chrono::seconds>(
+             std::chrono::system_clock::now().time_since_epoch())
+      .count();
+}
 
 bool valid_game_name(std::string_view game) noexcept {
   if (game.empty() || game.size() > kMaxGameNameBytes) {

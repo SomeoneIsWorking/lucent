@@ -4,14 +4,13 @@
 #include "lucent/log.h"
 #include "lucent/p2p/nostr.h"
 #include "lucent/text.h"
+#include "lucent/worker.h"
 
 #include <algorithm>
 #include <charconv>
-#include <chrono>
 #include <functional>
 #include <map>
 #include <stdexcept>
-#include <thread>
 #include <utility>
 
 namespace lucent::p2p {
@@ -20,12 +19,6 @@ namespace {
 // A withdrawn lobby is replaced by an empty one that lapses after this.
 constexpr std::int64_t kWithdrawnSeconds = 60;
 constexpr int kMaxListedLobbies = 200;
-
-std::int64_t now_seconds() {
-  return std::chrono::duration_cast<std::chrono::seconds>(
-             std::chrono::system_clock::now().time_since_epoch())
-      .count();
-}
 
 std::optional<std::int64_t> integer_of(std::string_view digits) {
   std::int64_t value = 0;
@@ -62,10 +55,10 @@ std::vector<std::string> each_relay(const std::vector<std::string> &relays,
   std::vector<std::string> errors(relays.size());
   std::vector<char> worked(relays.size(), 0);
   {
-    std::vector<std::jthread> threads;
+    std::vector<Worker> threads;
     threads.reserve(relays.size());
     for (std::size_t index = 0; index < relays.size(); ++index) {
-      threads.emplace_back([&, index] {
+      threads.emplace_back([&, index](const StopToken &) {
         worked[index] = work(index, errors[index]) ? 1 : 0;
       });
     }
@@ -108,7 +101,7 @@ NostrDirectory::~NostrDirectory() {
 }
 
 bool NostrDirectory::send(const Lobby &lobby, std::int64_t lifetime, std::string &error) {
-  const std::int64_t now = now_seconds();
+  const std::int64_t now = unix_seconds();
   nostr::Event event;
   event.created_at = now;
   event.kind = kNostrLobbyKind;
@@ -142,7 +135,7 @@ bool NostrDirectory::publish(const Lobby &lobby, std::string &error) {
     error = "a lobby needs an id and an invite, fields within their limits and seats that add up";
     return false;
   }
-  return send(lobby, kNostrLobbySeconds, error);
+  return send(lobby, kLobbySeconds, error);
 }
 
 bool NostrDirectory::withdraw(const std::string &id, std::string &error) {
@@ -152,10 +145,10 @@ bool NostrDirectory::withdraw(const std::string &id, std::string &error) {
 }
 
 std::optional<std::vector<Lobby>> NostrDirectory::list(std::string &error) {
-  const std::int64_t now = now_seconds();
+  const std::int64_t now = unix_seconds();
   const std::string filter = "{\"kinds\":[" + std::to_string(kNostrLobbyKind) + "],\"#t\":[" +
                              text::json_quote(topic_) +
-                             "],\"since\":" + std::to_string(now - kNostrLobbySeconds) +
+                             "],\"since\":" + std::to_string(now - kLobbySeconds) +
                              ",\"limit\":" + std::to_string(kMaxListedLobbies) + "}";
   std::vector<std::vector<nostr::Event>> found(relays_.size());
   const std::vector<std::string> errors =

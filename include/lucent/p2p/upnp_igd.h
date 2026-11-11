@@ -3,11 +3,11 @@
 #include <chrono>
 #include <memory>
 #include <optional>
-#include <stop_token>
 #include <string>
 #include <string_view>
 
 #include "lucent/p2p/port_mapper.h"
+#include "lucent/worker.h"
 
 // A port mapping through a router's UPnP Internet Gateway Device: found by SSDP, its description
 // read for the WAN connection's control URL, then AddPortMapping and DeletePortMapping by SOAP.
@@ -32,7 +32,7 @@ class UpnpIgd final : public PortMapper {
 public:
   // Searches `ssdp` for a router for at most `wait` and reads its description; nothing when none
   // answers. `local` is where its mappings point, in host byte order.
-  static std::unique_ptr<UpnpIgd> discover(const std::stop_token &stop, net::Endpoint ssdp,
+  static std::unique_ptr<UpnpIgd> discover(const StopToken &stop, net::Endpoint ssdp,
                                            std::uint32_t local, std::chrono::milliseconds wait);
 
   std::optional<Mapping> open(std::uint16_t port, std::chrono::seconds lease) override;

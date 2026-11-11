@@ -1,10 +1,11 @@
-// Two processes connect by a code over embedded ZeroTier alone, through a lab root in a third:
-// one libzt node per process. ctest runs it in a network namespace with a dummy interface, as
-// ZeroTier sends nothing over loopback.
+// Two processes connect by a code over embedded ZeroTier alone, through `lucent_zerotier_root` in
+// a third: one libzt node per process. ctest runs it in a network namespace with a dummy interface,
+// as ZeroTier sends nothing over loopback.
 #include "lucent/p2p/connector.h"
 #include "lucent/p2p/crypto.h"
 #include "lucent/p2p/reliable_link.h"
 #include "lucent/p2p/zerotier.h"
+#include "lucent/text.h"
 
 #include <array>
 #include <cassert>
@@ -43,33 +44,6 @@ std::string read_file(const std::filesystem::path &path) {
   return {std::istreambuf_iterator<char>{in}, {}};
 }
 
-void write_file(const std::filesystem::path &path, std::string_view bytes) {
-  std::ofstream{path, std::ios::binary}.write(bytes.data(),
-                                              static_cast<std::streamsize>(bytes.size()));
-}
-
-std::string hex(const crypto::Bytes &bytes) {
-  std::string out;
-  for (const std::uint8_t byte : bytes) {
-    std::array<char, 3> two{};
-    std::snprintf(two.data(), two.size(), "%02x", byte);
-    out += two.data();
-  }
-  return out;
-}
-
-// A lab root at the lab address, and its root set for every node.
-void make_lab_root(const std::filesystem::path &dir) {
-  std::string error;
-  const std::optional<std::string> roots =
-      make_root(dir / "root", std::string{kLabAddress} + "/" + std::to_string(kRootPort), error);
-  if (!roots) {
-    std::fprintf(stderr, "no lab root: %s\n", error.c_str());
-    std::exit(1);
-  }
-  write_file(dir / "roots", *roots);
-}
-
 std::unique_ptr<ZeroTierNode> node(const std::filesystem::path &dir, const char *name,
                                    std::uint16_t port) {
   std::string error;
@@ -80,7 +54,7 @@ std::unique_ptr<ZeroTierNode> node(const std::filesystem::path &dir, const char 
     std::fprintf(stderr, "%s: %s\n", name, error.c_str());
     std::exit(1);
   }
-  if (!started->wait_ready(std::stop_token{}, 60s)) {
+  if (!started->wait_ready(lucent::StopToken{}, 60s)) {
     std::fprintf(stderr, "%s: never on its network\n", name);
     std::exit(1);
   }
@@ -141,7 +115,7 @@ int run_host(const std::filesystem::path &dir) {
     std::fprintf(stderr, "host: the friend's message never came\n");
     return 1;
   }
-  std::printf("%s\n", hex(connection->keys.key(kLinkPurpose, Role::Host)).c_str());
+  std::printf("%s\n", lucent::text::hex(connection->keys.key(kLinkPurpose, Role::Host)).c_str());
   return 0;
 }
 
@@ -195,15 +169,7 @@ int run_friend(const std::filesystem::path &dir, const std::string &code) {
     std::fprintf(stderr, "friend: the host never acknowledged\n");
     return 1;
   }
-  std::printf("%s\n", hex(connection->keys.key(kLinkPurpose, Role::Host)).c_str());
-  return 0;
-}
-
-int run_root(const std::filesystem::path &dir) {
-  const auto zerotier = node(dir, "root", kRootPort);
-  while (zerotier) {
-    std::this_thread::sleep_for(1s);
-  }
+  std::printf("%s\n", lucent::text::hex(connection->keys.key(kLinkPurpose, Role::Host)).c_str());
   return 0;
 }
 
@@ -222,8 +188,8 @@ struct Child {
   }
 };
 
-Child spawn(const std::string &self, const std::vector<std::string> &arguments, bool read) {
-  std::vector<std::string> words{self};
+Child spawn(const std::string &program, const std::vector<std::string> &arguments, bool read) {
+  std::vector<std::string> words{program};
   words.insert(words.end(), arguments.begin(), arguments.end());
   std::vector<char *> argv;
   argv.reserve(words.size() + 1);
@@ -242,7 +208,7 @@ Child spawn(const std::string &self, const std::vector<std::string> &arguments, 
   }
   Child child;
   const int spawned =
-      posix_spawn(&child.pid, self.c_str(), &actions, nullptr, argv.data(), environ);
+      posix_spawn(&child.pid, program.c_str(), &actions, nullptr, argv.data(), environ);
   assert(spawned == 0);
   posix_spawn_file_actions_destroy(&actions);
   if (read) {
@@ -261,12 +227,20 @@ std::string first_line(int output) {
   return text;
 }
 
-int run_test(const std::string &self) {
+int run_test(const std::string &self, const std::string &root_program) {
   const std::filesystem::path dir =
       std::filesystem::current_path() / ("zerotier-test-" + std::to_string(getpid()));
   std::filesystem::create_directories(dir);
-  make_lab_root(dir);
-  Child root = spawn(self, {"root", dir.string()}, false);
+  const std::filesystem::path roots = dir / "roots";
+  Child root = spawn(root_program,
+                     {(dir / "root").string(),
+                      std::string{kLabAddress} + "/" + std::to_string(kRootPort), roots.string()},
+                     false);
+  // The root writes its root set before its node starts.
+  for (int tries = 0; tries < 100 && read_file(roots).empty(); ++tries) {
+    std::this_thread::sleep_for(100ms);
+  }
+  assert(!read_file(roots).empty());
   Child host = spawn(self, {"host", dir.string()}, true);
   const std::string code = first_line(host.output);
   assert(code.starts_with("TST"));
@@ -279,9 +253,9 @@ int run_test(const std::string &self) {
   const int friend_status = other.wait();
   const int host_status = host.wait();
   kill(root.pid, SIGTERM);
-  root.wait();
+  const int root_status = root.wait();
   std::filesystem::remove_all(dir);
-  assert(friend_status == 0 && host_status == 0);
+  assert(friend_status == 0 && host_status == 0 && root_status == 0);
   assert(!host_key.empty() && host_key == friend_key);
   assert(stranger_status == 0 && stranger_result == "none");
   std::puts("two processes connected over ZeroTier alone and agree on keys; a stranger did not");
@@ -292,14 +266,11 @@ int run_test(const std::string &self) {
 
 int main(int argc, char **argv) {
   const std::string self = std::filesystem::canonical("/proc/self/exe").string();
-  if (argc == 1) {
-    return run_test(self);
-  }
   const std::string role = argv[1];
-  const std::filesystem::path dir = argv[2];
-  if (role == "root") {
-    return run_root(dir);
+  if (role == "--root") {
+    return run_test(self, argv[2]);
   }
+  const std::filesystem::path dir = argv[2];
   if (role == "host") {
     return run_host(dir);
   }

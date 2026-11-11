@@ -5,11 +5,13 @@
 #include "test_environment.h"
 #include "websocket_peer.h"
 
+#include <algorithm>
 #include <array>
 #include <cstdint>
 #include <iostream>
 #include <string>
 #include <thread>
+#include <utility>
 
 namespace {
 
@@ -72,6 +74,59 @@ void test_post_sends_its_body() {
   server.stop();
 }
 
+// A server's response handed out a few bytes per read, then closed.
+class ScriptedStream final : public lucent::net::ByteStream {
+public:
+  explicit ScriptedStream(std::string response) : response_{std::move(response)} {
+  }
+  bool send_all(std::string_view, std::string &) override {
+    return true;
+  }
+  lucent::net::ReadOutcome read_some(std::string &buffer) override {
+    if (at_ >= response_.size()) {
+      return lucent::net::ReadOutcome::Closed;
+    }
+    const std::size_t count = std::min<std::size_t>(5, response_.size() - at_);
+    buffer.append(response_, at_, count);
+    at_ += count;
+    return lucent::net::ReadOutcome::Data;
+  }
+
+private:
+  std::string response_;
+  std::size_t at_ = 0;
+};
+
+bool fetch_scripted(const std::string &response, lucent::http::FetchResult &result,
+                    std::string &error, std::size_t max_body = lucent::http::kMaxFetchBodyBytes) {
+  ScriptedStream stream{response};
+  lucent::http::FetchRequest request;
+  request.max_body = max_body;
+  return lucent::http::fetch(stream, "example.test", request, result, error);
+}
+
+void test_fetch_reads_a_chunked_body() {
+  const std::string head = "HTTP/1.1 200 OK\r\nTransfer-Encoding: chunked\r\n\r\n";
+  lucent::http::FetchResult result;
+  std::string error;
+  expect(fetch_scripted(head + "4\r\nWiki\r\n7;note=x\r\npedia i\r\nB\r\nn \r\nchunks.\r\n0\r\n"
+                               "Expires: never\r\n\r\n",
+                        result, error) &&
+             result.status == 200 && result.body == "Wikipedia in \r\nchunks.",
+         "a chunked body arrives whole, extensions and trailers skipped");
+  expect(!fetch_scripted(head + "4\r\nWiki\r\n", result, error) && !error.empty(),
+         "a chunked body cut off before its last chunk fails");
+  expect(!fetch_scripted(head + "zz\r\nWiki\r\n0\r\n\r\n", result, error),
+         "a chunk size that is not hex fails");
+  expect(!fetch_scripted(head + "4\r\nWikiX\r\n0\r\n\r\n", result, error),
+         "a chunk longer than its size fails");
+  expect(!fetch_scripted(head + "8\r\nWikipedi\r\n0\r\n\r\n", result, error, 4),
+         "a chunked body past the cap fails");
+  expect(!fetch_scripted("HTTP/1.1 200 OK\r\nTransfer-Encoding: gzip\r\n\r\nxx", result, error) &&
+             error.find("gzip") != std::string::npos,
+         "another transfer coding is named");
+}
+
 void test_websocket_exchange() {
   lucent::test::WebSocketPeer peer;
   std::thread server{[&peer] {
@@ -117,6 +172,7 @@ int main() {
     test_accept_matches_rfc_example();
     test_get_reads_a_server_response();
     test_post_sends_its_body();
+    test_fetch_reads_a_chunked_body();
     test_websocket_exchange();
     test_websocket_rejects_a_wrong_accept();
     if (g_failures != 0) {

@@ -34,7 +34,7 @@ struct FetchRequest {
 
 // One request over one connection to plain-HTTP `server`: loopback, or a device on the LAN such as
 // a router. No TLS; a redirect is returned, never followed. A response framed by Content-Length or
-// by the connection closing is read; chunked transfer is refused and named in `error`.
+// by the connection closing or chunked is read; another transfer coding is named in `error`.
 bool fetch(const net::Endpoint &server, const FetchRequest &request, FetchResult &result,
            std::string &error);
 // The same request over a connected `stream` (TLS from `lucent::online` for https), naming `host`
@@ -43,7 +43,7 @@ bool fetch(net::ByteStream &stream, std::string_view host, const FetchRequest &r
            FetchResult &result, std::string &error);
 
 // GETs `target` from 127.0.0.1:`port` over one connection. A response framed by Content-Length or
-// by the connection closing is read; chunked transfer is refused and named in `error`.
+// by the connection closing or chunked is read; another transfer coding is named in `error`.
 bool get_loopback(std::uint16_t port, std::string_view target, FetchResult &result,
                   std::string &error);
 

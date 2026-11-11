@@ -3,12 +3,11 @@
 #include <memory>
 #include <mutex>
 #include <optional>
-#include <stop_token>
 #include <string>
-#include <thread>
 
 #include "lucent/p2p/path.h"
 #include "lucent/udp_socket.h"
+#include "lucent/worker.h"
 
 // Carries a local process's datagrams over a path it cannot open itself: an embedded ZeroTier
 // node lives in one process, and a game runner is another. The process sends to `local()`; the
@@ -32,8 +31,8 @@ public:
 
 private:
   PathBridge(std::unique_ptr<Path> path, PathAddress peer, net::UdpSocket socket);
-  void outward(const std::stop_token &stop);
-  void inward(const std::stop_token &stop);
+  void outward(const StopToken &stop);
+  void inward(const StopToken &stop);
 
   std::unique_ptr<Path> path_;
   PathAddress peer_;
@@ -41,8 +40,8 @@ private:
   mutable std::mutex mutex_;
   // The local process, once it has sent; only loopback senders are taken.
   std::optional<net::Endpoint> process_;
-  std::jthread outward_;
-  std::jthread inward_;
+  Worker outward_;
+  Worker inward_;
 };
 
 } // namespace lucent::p2p

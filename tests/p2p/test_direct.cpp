@@ -1,9 +1,9 @@
 #include "lucent/p2p/direct.h"
+#include "lucent/worker.h"
 
 #include <cassert>
 #include <cstdio>
 #include <optional>
-#include <stop_token>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -118,7 +118,7 @@ void gathering_takes_the_stun_answer_and_the_locals() {
   network.interfaces =
       std::vector<Ipv4Interface>{masked(interface("lab0", 0x0A000002u), 0xFFFFFF00u)};
   network.router = false;
-  const DirectGathered gathered = gather_direct(std::stop_token{}, *socket, network);
+  const DirectGathered gathered = gather_direct(lucent::StopToken{}, *socket, network);
   assert(gathered.reach.port == socket->port());
   assert(gathered.reach.publics.size() == 1);
   assert(gathered.reach.publics[0] == (lucent::net::Endpoint{0x7F000001u, socket->port()}));

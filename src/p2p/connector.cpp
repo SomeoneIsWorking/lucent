@@ -51,14 +51,14 @@ std::string_view text_of(Connector::Failure failure) {
 
 Connector::Connector(ConnectorConfig config)
     : config_{std::move(config)}, role_{Role::Host},
-      invite_{crypto::random_bytes(kSecretBytes), {}}, worker_{[this](const std::stop_token &stop) {
+      invite_{crypto::random_bytes(kSecretBytes), {}}, worker_{[this](const StopToken &stop) {
         run(stop);
       }} {
 }
 
 Connector::Connector(ConnectorConfig config, Invite invite)
     : config_{std::move(config)}, role_{Role::Friend}, invite_{std::move(invite)},
-      worker_{[this](const std::stop_token &stop) {
+      worker_{[this](const StopToken &stop) {
         run(stop);
       }} {
 }
@@ -116,7 +116,7 @@ void Connector::offer(std::string code, bool closed, Step step) {
   view_.closed = closed;
 }
 
-void Connector::run(const std::stop_token &stop) {
+void Connector::run(const StopToken &stop) {
   try {
     std::unique_ptr<UdpPath> path = new_path();
     DirectGathered gathered = gather_direct(stop, path->socket(), config_.direct);
@@ -154,7 +154,7 @@ void Connector::connect(std::unique_ptr<Path> path, const Found &found,
               backend == Backend::Direct ? "connected directly" : "connected over ZeroTier");
 }
 
-bool Connector::find(const std::stop_token &stop, std::unique_ptr<UdpPath> &path,
+bool Connector::find(const StopToken &stop, std::unique_ptr<UdpPath> &path,
                      DirectGathered &gathered) {
   const bool host = role_ == Role::Host;
   auto handshake = std::make_unique<Handshake>(*path, role_, invite_.secret, config_.label);

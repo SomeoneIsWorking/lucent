@@ -166,8 +166,9 @@ std::FILE *open_append_file(const std::string &path) {
 #endif
 }
 
+#ifndef __ANDROID__
 // A Windows GUI program's stderr has no handle behind it (its descriptor is -2); a macOS app
-// opened from Finder gets /dev/null from launchd.
+// opened from Finder gets /dev/null from launchd. Android logs to logcat instead.
 bool has_stderr() {
 #ifdef _WIN32
   return _fileno(stderr) >= 0;
@@ -180,6 +181,7 @@ bool has_stderr() {
   return !(S_ISCHR(own.st_mode) && stat("/dev/null", &null) == 0 && own.st_rdev == null.st_rdev);
 #endif
 }
+#endif
 
 // "cd, gpu" or "all"; spaces around a name are ignored. Caller holds state().mutex.
 void add_channel_list_locked(std::string_view list) {

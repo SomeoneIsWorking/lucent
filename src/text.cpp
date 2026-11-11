@@ -108,6 +108,22 @@ std::string hex(std::span<const std::uint8_t> bytes) {
   return out;
 }
 
+std::string url_encode(std::string_view value) {
+  std::string out;
+  out.reserve(value.size());
+  for (const char each : value) {
+    const auto byte = static_cast<std::uint8_t>(each);
+    if (std::isalnum(byte) != 0 || each == '-' || each == '.' || each == '_' || each == '~') {
+      out.push_back(each);
+    } else {
+      out.push_back('%');
+      out.push_back(static_cast<char>(std::toupper(kHex[byte >> 4U])));
+      out.push_back(static_cast<char>(std::toupper(kHex[byte & 0x0FU])));
+    }
+  }
+  return out;
+}
+
 std::optional<std::vector<std::uint8_t>> from_hex(std::string_view digits) {
   if (digits.size() % 2 != 0) {
     return std::nullopt;

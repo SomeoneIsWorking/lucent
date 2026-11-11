@@ -22,8 +22,10 @@ is dependency-free; optional `lucent::zip` adds zlib-backed archive extraction a
   `udp_socket` and `ipv4` own the IPv4 UDP socket and address type.
 - `online` (optional, `LUCENT_BUILD_ONLINE`, OpenSSL libcrypto and libssl; on by default only in
   Lucent's own build) owns peer-to-peer transport in `lucent::p2p`: codes, NAT traversal, the
-  authenticated handshake, the reliable link, TLS, and lobby directories on Nostr relays or a
-  self-hosted `lucent_lobby_server` (`docs/p2p.md`, plan `docs/plans/0006-online-framework.md`).
+  authenticated handshake, the reliable link, TLS, a LAN game's virtual LAN, and lobby directories
+  on Nostr relays, a self-hosted `lucent_lobby_server` or Firebase (`docs/p2p.md`, plan
+  `docs/plans/0006-online-framework.md`). `lucent_zerotier_root` is a ZeroTier lab's own root.
+- `rollback` owns rollback netplay for a deterministic game (`docs/rollback.md`).
   Consumers own message kinds and caps, wording, patience and UI.
 - `touch` owns platform-neutral contact-to-zone capture, multi-touch routing, and cancellation.
   Android/SDL3 shells own event acquisition, safe-area layout, and conversion from zone IDs to game
@@ -48,6 +50,8 @@ Full quality check: `python3 tools/check_cpp_quality.py build`. Tests: `ctest --
 `zerotier` (optional, `LUCENT_BUILD_ZEROTIER`, needs `online`; on by default only in Lucent's own
 build) is the embedded ZeroTier backend a game links to opt in.
 
-Focused online tests: `ctest --test-dir build/agent -R p2p`. The zerotier target finds libzt (revision
+Focused online tests: `ctest --test-dir build/agent -R p2p`; rollback: `-R rollback`. The Firebase
+directory on the Local Emulator Suite: `lucent_p2p_firebase_directory_tests --rules` gives the rules
+file, then `--emulator http://127.0.0.1:9000 http://127.0.0.1:9099 <project>-default-rtdb`. The zerotier target finds libzt (revision
 in `docs/p2p.md`) through `CMAKE_PREFIX_PATH`; the agent tree uses
 `~/.local/share/lucent-thirdparty/libzt-<revision>-<compiler>`. The ZeroTier test needs `unshare` and `ip`.

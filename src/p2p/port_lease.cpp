@@ -1,14 +1,12 @@
 #include "lucent/p2p/port_lease.h"
 
 #include <algorithm>
-#include <condition_variable>
-#include <mutex>
 #include <optional>
-#include <stop_token>
 #include <string>
 #include <utility>
 
 #include "lucent/log.h"
+#include "lucent/worker.h"
 
 namespace lucent::p2p {
 namespace {
@@ -22,7 +20,7 @@ constexpr std::chrono::seconds kRetry{5};
 
 PortLease::PortLease(std::unique_ptr<PortMapper> mapper, std::uint16_t port, Mapping mapping)
     : mapper_{std::move(mapper)}, port_{port}, external_{mapping.external},
-      keeper_{[this, lease = mapping.lease](const std::stop_token &stop) {
+      keeper_{[this, lease = mapping.lease](const StopToken &stop) {
         keep(stop, lease);
       }} {
   lucent::log(lucent::Level::Info, "p2p",
@@ -37,17 +35,9 @@ PortLease::~PortLease() {
   lucent::log(lucent::Level::Info, "p2p", "the router's port mapping is taken down");
 }
 
-void PortLease::keep(const std::stop_token &stop, std::chrono::seconds lease) {
-  std::mutex mutex;
-  std::condition_variable_any wake;
-  std::unique_lock lock{mutex};
+void PortLease::keep(const StopToken &stop, std::chrono::seconds lease) {
   std::chrono::seconds wait = std::max(lease / 2, std::chrono::seconds{1});
-  while (!wake.wait_for(lock, stop, wait, [] {
-    return false;
-  })) {
-    if (stop.stop_requested()) {
-      return;
-    }
+  while (!stop.sleep_for(wait)) {
     const std::optional<Mapping> renewed = mapper_->open(port_, kAskedLease);
     wait = renewed ? std::max(renewed->lease / 2, std::chrono::seconds{1}) : kRetry;
   }

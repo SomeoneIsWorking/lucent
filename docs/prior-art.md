@@ -22,5 +22,9 @@ Trystero (MIT) signals WebRTC peers over Nostr with ephemeral kinds (20000–299
 not store, so a lobby list cannot be read back from them; it picks relays by NIP-66 health. We take
 the relay choice and nothing else: Lucent's lobbies are addressable kinds with a NIP-40 expiry.
 
-Still to check before they are built: GGPO and its maintained forks (MIT) for rollback;
-libsecp256k1 (MIT) for Nostr signatures; libdatachannel (MPL-2.0) for WebRTC.
+GGPO (pond3r/ggpo, MIT, last pushed 2024-06-26) is the design reference for `lucent::rollback`:
+per-slot input queues with prediction by repetition, a ring of saved states, a frame-advantage
+stall and checksums on confirmed frames. No code is taken; its transport, spectators and Windows
+timers are not wanted. Nostr signatures are OpenSSL's secp256k1, not libsecp256k1.
+
+Still to check before it is built: libdatachannel (MPL-2.0) for WebRTC.

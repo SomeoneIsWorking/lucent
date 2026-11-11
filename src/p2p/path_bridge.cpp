@@ -29,10 +29,10 @@ std::unique_ptr<PathBridge> PathBridge::start(std::unique_ptr<Path> path, PathAd
 
 PathBridge::PathBridge(std::unique_ptr<Path> path, PathAddress peer, net::UdpSocket socket)
     : path_{std::move(path)}, peer_{peer}, socket_{std::move(socket)},
-      outward_{[this](const std::stop_token &stop) {
+      outward_{[this](const StopToken &stop) {
         outward(stop);
       }},
-      inward_{[this](const std::stop_token &stop) {
+      inward_{[this](const StopToken &stop) {
         inward(stop);
       }} {
 }
@@ -41,7 +41,7 @@ net::Endpoint PathBridge::local() const noexcept {
   return {kLoopback, socket_.port()};
 }
 
-void PathBridge::outward(const std::stop_token &stop) {
+void PathBridge::outward(const StopToken &stop) {
   std::vector<char> buffer(net::kLargestDatagram);
   while (!stop.stop_requested()) {
     net::Endpoint from;
@@ -57,7 +57,7 @@ void PathBridge::outward(const std::stop_token &stop) {
   }
 }
 
-void PathBridge::inward(const std::stop_token &stop) {
+void PathBridge::inward(const StopToken &stop) {
   std::vector<char> buffer(net::kLargestDatagram);
   while (!stop.stop_requested()) {
     PathAddress from;

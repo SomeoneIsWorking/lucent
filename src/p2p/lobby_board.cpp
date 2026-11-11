@@ -5,7 +5,6 @@
 #include "lucent/text.h"
 
 #include <algorithm>
-#include <chrono>
 #include <vector>
 
 namespace lucent::p2p {
@@ -13,12 +12,6 @@ namespace {
 
 // A token is 32 random bytes as hex.
 constexpr std::size_t kTokenHexDigits = 64;
-
-std::int64_t system_seconds() {
-  return std::chrono::duration_cast<std::chrono::seconds>(
-             std::chrono::system_clock::now().time_since_epoch())
-      .count();
-}
 
 http::Response refused(int status, std::string reason, std::string_view why) {
   return http::Response::json(status, std::move(reason),
@@ -53,7 +46,7 @@ std::optional<Signed> signed_body(const http::Request &request, std::string &why
 
 } // namespace
 
-LobbyBoard::LobbyBoard(Clock now) : now_{now ? std::move(now) : Clock{system_seconds}} {
+LobbyBoard::LobbyBoard(Clock now) : now_{now ? std::move(now) : Clock{unix_seconds}} {
 }
 
 http::Response LobbyBoard::handle(const http::Request &request) {
@@ -95,7 +88,7 @@ http::Response LobbyBoard::publish(const http::Request &request) {
   }
   const std::int64_t now = now_();
   lobby->host = body->host;
-  lobby->expires_at = now + kBoardLobbySeconds;
+  lobby->expires_at = now + kLobbySeconds;
   const std::lock_guard lock{mutex_};
   prune(now);
   if (!games_.contains(body->game) && games_.size() >= kMaxBoardGames) {

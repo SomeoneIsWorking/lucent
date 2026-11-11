@@ -51,7 +51,7 @@ std::vector<net::Endpoint> servers_of(std::string_view list) {
 }
 
 // The address each server saw, from one socket; nothing for one that did not answer.
-std::vector<std::optional<net::Endpoint>> ask_servers(const std::stop_token &stop,
+std::vector<std::optional<net::Endpoint>> ask_servers(const StopToken &stop,
                                                       const net::UdpSocket &socket,
                                                       const std::vector<net::Endpoint> &servers) {
   std::vector<StunId> ids(servers.size());
@@ -88,7 +88,7 @@ std::vector<std::optional<net::Endpoint>> ask_servers(const std::stop_token &sto
   return seen;
 }
 
-std::unique_ptr<PortLease> map_port(const std::stop_token &stop, const DirectNetwork &network,
+std::unique_ptr<PortLease> map_port(const StopToken &stop, const DirectNetwork &network,
                                     std::uint16_t port, const std::vector<std::uint32_t> &locals,
                                     std::optional<std::uint32_t> gateway) {
   std::optional<net::Endpoint> nat_pmp = network.nat_pmp;
@@ -145,7 +145,7 @@ std::vector<std::uint32_t> reachable_locals(const std::vector<net::Ipv4Interface
   return first;
 }
 
-DirectGathered gather_direct(const std::stop_token &stop, const net::UdpSocket &socket,
+DirectGathered gather_direct(const StopToken &stop, const net::UdpSocket &socket,
                              const DirectNetwork &network) {
   DirectGathered gathered;
   gathered.reach.port = socket.port();

@@ -13,8 +13,6 @@
 
 namespace lucent::p2p {
 
-// A lobby lapses this long after its host last published it.
-inline constexpr std::int64_t kBoardLobbySeconds = 300;
 inline constexpr std::size_t kMaxBoardLobbiesPerGame = 500;
 inline constexpr std::size_t kMaxBoardGames = 256;
 

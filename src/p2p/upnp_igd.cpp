@@ -133,7 +133,7 @@ std::optional<IgdService> igd_service_in(std::string_view description, std::stri
   return std::nullopt;
 }
 
-std::unique_ptr<UpnpIgd> UpnpIgd::discover(const std::stop_token &stop, net::Endpoint ssdp,
+std::unique_ptr<UpnpIgd> UpnpIgd::discover(const StopToken &stop, net::Endpoint ssdp,
                                            std::uint32_t local, std::chrono::milliseconds wait) {
   std::string error;
   const std::optional<net::UdpSocket> socket = net::UdpSocket::bind(0, error);

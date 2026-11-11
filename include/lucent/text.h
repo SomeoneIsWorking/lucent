@@ -58,6 +58,8 @@ std::string json_quote(std::string_view value);
 std::string hex(std::span<const std::uint8_t> bytes);
 // The bytes `digits` spell, either case; nothing for an odd length or a non-hex digit.
 std::optional<std::vector<std::uint8_t>> from_hex(std::string_view digits);
+// `value` for a URL query or form field: RFC 3986 unreserved bytes kept, every other one %XX.
+std::string url_encode(std::string_view value);
 
 // "1 game", "2 games": the count and its English noun, `many` unless the count is one.
 std::string counted(std::size_t count, std::string_view one, std::string_view many);

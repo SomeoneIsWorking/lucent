@@ -30,6 +30,7 @@ add_library(lucent STATIC
   src/log_c.cpp
   src/network_interfaces.cpp
   src/platform.cpp
+  src/rollback/session.cpp
   src/rotation.cpp
   src/text.cpp
   src/thread_work_counter.cpp
@@ -96,11 +97,12 @@ if(LUCENT_BUILD_ONLINE)
   find_package(OpenSSL 3 REQUIRED COMPONENTS Crypto SSL)
   add_library(lucent_online STATIC
     src/p2p/connector.cpp src/p2p/crypto.cpp src/p2p/descriptor.cpp src/p2p/direct.cpp
-    src/p2p/directory.cpp src/p2p/handshake.cpp src/p2p/http_directory.cpp
-    src/p2p/lobby_board.cpp src/p2p/nat_pmp.cpp src/p2p/nostr.cpp src/p2p/nostr_directory.cpp
+    src/p2p/directory.cpp src/p2p/firebase_directory.cpp src/p2p/handshake.cpp
+    src/p2p/http_directory.cpp src/p2p/lobby_board.cpp src/p2p/nat_pmp.cpp src/p2p/nostr.cpp
+    src/p2p/nostr_directory.cpp
     src/p2p/packet_seal.cpp src/p2p/path.cpp src/p2p/path_bridge.cpp src/p2p/port_lease.cpp
     src/p2p/reliable_link.cpp src/p2p/schnorr.cpp src/p2p/stun.cpp src/p2p/tls_stream.cpp
-    src/p2p/upnp_igd.cpp)
+    src/p2p/upnp_igd.cpp src/p2p/virtual_lan.cpp)
   add_library(lucent::online ALIAS lucent_online)
   target_link_libraries(lucent_online PUBLIC lucent OpenSSL::SSL OpenSSL::Crypto)
   # Where the system keeps its TLS roots.
@@ -158,6 +160,11 @@ if(LUCENT_BUILD_ZEROTIER)
   endif()
   set_target_properties(lucent_zerotier PROPERTIES POSITION_INDEPENDENT_CODE ON
     EXPORT_NAME zerotier)
+  # A lab's own root, for labs with no internet; a consumer's lab depends on the target by name.
+  if(UNIX AND NOT ANDROID)
+    add_executable(lucent_zerotier_root src/p2p/zerotier_root_main.cpp)
+    target_link_libraries(lucent_zerotier_root PRIVATE lucent::zerotier)
+  endif()
 endif()
 
 find_package(Threads REQUIRED)
@@ -244,6 +251,14 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     target_link_libraries(lucent_touch_tests PRIVATE lucent)
     add_test(NAME lucent_touch_tests COMMAND lucent_touch_tests)
 
+    add_executable(lucent_rollback_tests tests/test_rollback.cpp)
+    target_link_libraries(lucent_rollback_tests PRIVATE lucent)
+    add_test(NAME lucent_rollback_tests COMMAND lucent_rollback_tests)
+
+    add_executable(lucent_worker_tests tests/test_worker.cpp)
+    target_link_libraries(lucent_worker_tests PRIVATE lucent)
+    add_test(NAME lucent_worker_tests COMMAND lucent_worker_tests)
+
     add_executable(lucent_url_tests tests/test_url.cpp)
     target_link_libraries(lucent_url_tests PRIVATE lucent)
     add_test(NAME lucent_url_tests COMMAND lucent_url_tests)
@@ -295,7 +310,8 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 
     if(TARGET lucent_online)
       foreach(_lucent_p2p_test crypto descriptor handshake reliable_link stun direct connector
-        port_lease path_bridge schnorr tls_stream nostr nostr_directory lobby_board)
+        port_lease path_bridge schnorr tls_stream nostr nostr_directory lobby_board
+        firebase_directory virtual_lan)
         add_executable(lucent_p2p_${_lucent_p2p_test}_tests tests/p2p/test_${_lucent_p2p_test}.cpp)
         target_include_directories(lucent_p2p_${_lucent_p2p_test}_tests PRIVATE src tests)
         target_link_libraries(lucent_p2p_${_lucent_p2p_test}_tests PRIVATE lucent::online)
@@ -309,8 +325,8 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
         target_link_libraries(lucent_p2p_zerotier_tests PRIVATE lucent::zerotier)
         add_test(NAME lucent_p2p_zerotier_tests
           COMMAND unshare --map-root-user --net sh -c
-            "ip link set lo up && ip link add lab0 type dummy && ip addr add 10.77.0.1/24 dev lab0 && ip link set lab0 up && exec \"$0\""
-            $<TARGET_FILE:lucent_p2p_zerotier_tests>)
+            "ip link set lo up && ip link add lab0 type dummy && ip addr add 10.77.0.1/24 dev lab0 && ip link set lab0 up && exec \"$0\" \"$@\""
+            $<TARGET_FILE:lucent_p2p_zerotier_tests> --root $<TARGET_FILE:lucent_zerotier_root>)
         set_tests_properties(lucent_p2p_zerotier_tests PROPERTIES TIMEOUT 180)
       endif()
     endif()

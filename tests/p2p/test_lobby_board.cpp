@@ -48,7 +48,7 @@ int main() {
   const lucent::p2p::Lobby found = listed.value_or(std::vector<lucent::p2p::Lobby>{{}}).front();
   assert(found.id == "room" && found.title == lobby.title && found.invite == "INVITE" &&
          found.players == 1 && found.capacity == 4 && found.version == "2.1" &&
-         found.host.size() == 64 && found.expires_at == clock + lucent::p2p::kBoardLobbySeconds);
+         found.host.size() == 64 && found.expires_at == clock + lucent::p2p::kLobbySeconds);
   assert(listed_count(other_game) == 0);
 
   const bool not_theirs = friend_.withdraw("room", error);
@@ -57,7 +57,7 @@ int main() {
   assert(withdrawn && listed_count(friend_) == 0);
 
   host.publish(lobby, error);
-  clock += lucent::p2p::kBoardLobbySeconds - 1;
+  clock += lucent::p2p::kLobbySeconds - 1;
   assert(listed_count(friend_) == 1);
   clock += 1;
   assert(listed_count(friend_) == 0);

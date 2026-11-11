@@ -185,6 +185,75 @@ bool read_head(net::ByteStream &stream, Head &head, std::string &error) {
   return true;
 }
 
+enum class Chunked : std::uint8_t { Complete, Partial, Malformed };
+
+// RFC 9112 7.1: the body of a chunked message read so far, trailers skipped.
+Chunked dechunk(std::string_view raw, std::size_t max_body, std::string &body) {
+  body.clear();
+  std::size_t at = 0;
+  while (true) {
+    const std::size_t line_end = raw.find("\r\n", at);
+    if (line_end == std::string_view::npos) {
+      return raw.size() - at > 32 ? Chunked::Malformed : Chunked::Partial;
+    }
+    std::string_view size_line = raw.substr(at, line_end - at);
+    size_line = size_line.substr(0, size_line.find(';'));
+    while (!size_line.empty() && (size_line.back() == ' ' || size_line.back() == '\t')) {
+      size_line.remove_suffix(1);
+    }
+    std::size_t size = 0;
+    const auto parsed =
+        std::from_chars(size_line.data(), size_line.data() + size_line.size(), size, 16);
+    if (size_line.empty() || parsed.ec != std::errc{} ||
+        parsed.ptr != size_line.data() + size_line.size() || size > max_body - body.size()) {
+      return Chunked::Malformed;
+    }
+    at = line_end + 2;
+    if (size == 0) {
+      // Trailer lines, then the empty line that ends the message.
+      while (true) {
+        const std::size_t trailer_end = raw.find("\r\n", at);
+        if (trailer_end == std::string_view::npos) {
+          return Chunked::Partial;
+        }
+        if (trailer_end == at) {
+          return Chunked::Complete;
+        }
+        at = trailer_end + 2;
+      }
+    }
+    if (raw.size() < at + size + 2) {
+      return Chunked::Partial;
+    }
+    if (raw.substr(at + size, 2) != "\r\n") {
+      return Chunked::Malformed;
+    }
+    body.append(raw.substr(at, size));
+    at += size + 2;
+  }
+}
+
+// Reads a chunked body to its last chunk.
+std::optional<std::string> read_chunked(net::ByteStream &connection, std::string raw,
+                                        std::size_t max_body, std::string &error) {
+  std::string body;
+  while (true) {
+    switch (dechunk(raw, max_body, body)) {
+    case Chunked::Complete:
+      return body;
+    case Chunked::Malformed:
+      error = "malformed or oversized chunked body";
+      return std::nullopt;
+    case Chunked::Partial:
+      break;
+    }
+    if (const ReadOutcome outcome = connection.read_some(raw); outcome != ReadOutcome::Data) {
+      error = describe(outcome, "connection closed before the last chunk");
+      return std::nullopt;
+    }
+  }
+}
+
 } // namespace
 
 namespace {
@@ -218,10 +287,19 @@ bool fetch(net::ByteStream &connection, std::string_view host, const FetchReques
   if (!connection.send_all(request, error) || !read_head(connection, head, error)) {
     return false;
   }
-  if (const auto encoding = header_value(head, "Transfer-Encoding");
-      encoding && lowercase(*encoding) != "identity") {
-    error = "unsupported transfer encoding " + *encoding;
-    return false;
+  if (const auto encoding = header_value(head, "Transfer-Encoding")) {
+    if (lowercase(*encoding) != "chunked") {
+      error = "unsupported transfer encoding " + *encoding;
+      return false;
+    }
+    std::optional<std::string> body =
+        read_chunked(connection, std::move(head.rest), sent.max_body, error);
+    if (!body) {
+      return false;
+    }
+    result.status = head.status;
+    result.body = std::move(*body);
+    return true;
   }
   std::optional<std::size_t> length;
   if (const auto value = header_value(head, "Content-Length")) {

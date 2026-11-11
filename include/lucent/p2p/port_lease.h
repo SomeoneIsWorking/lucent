@@ -3,9 +3,9 @@
 #include <chrono>
 #include <cstdint>
 #include <memory>
-#include <thread>
 
 #include "lucent/p2p/port_mapper.h"
+#include "lucent/worker.h"
 
 // A router's mapping held while this object lives: renewed at half its lease on its own thread,
 // taken down when it goes. Should the process die instead, the mapping lapses with its short lease.
@@ -29,12 +29,12 @@ public:
   }
 
 private:
-  void keep(const std::stop_token &stop, std::chrono::seconds lease);
+  void keep(const StopToken &stop, std::chrono::seconds lease);
 
   std::unique_ptr<PortMapper> mapper_;
   std::uint16_t port_;
   net::Endpoint external_;
-  std::jthread keeper_;
+  Worker keeper_;
 };
 
 } // namespace lucent::p2p

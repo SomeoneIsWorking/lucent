@@ -68,15 +68,17 @@ degrades to the others.
   android-port layer).
 - A self-hosted lobby on `lucent::http::Server` second: the same interface, a config change away,
   for when the user rents a server. Proved locally.
-- Not built: Firebase (needs the user's account and console setup) and EOS (its terms rule out fan
-  ports). The user: "we just need something for discovery, I'll rent a server if it becomes a
-  problem".
+- Firebase third: Realtime Database over REST with Anonymous Auth (Identity Toolkit `signUp`), on
+  the free Spark plan, behind the same interface; rules let only a lobby's owner write it and index
+  its expiry. Proved on the Firebase Local Emulator Suite first; the user's own project needs
+  console steps on their Google account. EOS stays out (its terms rule out fan ports).
 
 ### Rollback
 
-One title-neutral engine on a sealed `Path`: input exchange, prediction, rewind and resimulate,
-input delay, per-frame state-hash desync detection, spectating if cheap. The runtime supplies save
-state, load state, advance one frame, set the pads. GGPO (MIT) and its forks are checked first.
+One title-neutral engine whose messages the application carries over a sealed link: input
+exchange, prediction, rewind and resimulate, input delay, final-hash desync detection, spectating
+if cheap. The runtime supplies save state, load state, set the pads, advance one frame (8 slots of
+1 byte for the first consumers) and a state hash. GGPO (MIT) is the design reference.
 
 ## Phases
 
@@ -88,9 +90,11 @@ state, load state, advance one frame, set the pads. GGPO (MIT) and its forks are
    lobby screen consuming it is next.
 4. Self-hosted lobby. **Shown in Lucent** (`LobbyBoard`, `HttpDirectory`, `lucent_lobby_server`, live
    on a LAN address); the user rents a server when the relays are not enough.
-5. Rollback engine with psxport (Crash Bash 4-player), then LF2.
+5. Rollback engine with psxport (Crash Bash 4-player), then LF2. **Shown in Lucent**
+   (`lucent::rollback::Session` against a test game over lossy, jittery links: docs/rollback.md);
+   psxport consuming it is next.
 6. X-Men Legends II: game's own LAN netcode over the transport; broadcast discovery becomes unicast to
-   friend codes and directory entries.
+   friend codes and directory entries. `VirtualLan` shows each friend at one 10.254.0.x address.
 
 Each phase is done when two or more processes in rootless network namespaces play in the consuming
 product. ZeroTier is proved by openSU's `tools.nat_lab` with symmetric NATs on both sides, so that

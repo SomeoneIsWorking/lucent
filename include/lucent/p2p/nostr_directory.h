@@ -17,8 +17,6 @@ inline constexpr std::array<std::string_view, 5> kDefaultNostrRelays{
     "wss://relay.primal.net", "wss://relay.snort.social", "wss://offchain.pub",
     "wss://nostr.oxtr.dev", "wss://purplerelay.com"};
 
-// A lobby lapses this long after its last publish.
-inline constexpr std::int64_t kNostrLobbySeconds = 300;
 // NIP-78 application data: addressable, so a republish replaces the last one.
 inline constexpr int kNostrLobbyKind = 30078;
 

@@ -3,7 +3,6 @@
 #include <cstdint>
 #include <memory>
 #include <optional>
-#include <stop_token>
 #include <string>
 #include <string_view>
 #include <vector>
@@ -12,6 +11,7 @@
 #include "lucent/p2p/descriptor.h"
 #include "lucent/p2p/port_lease.h"
 #include "lucent/udp_socket.h"
+#include "lucent/worker.h"
 
 // The direct backend's view of where its socket can be reached: this machine's interface
 // addresses, what two STUN servers saw, and a router mapping by NAT-PMP or UPnP.
@@ -49,7 +49,7 @@ std::vector<std::uint32_t> reachable_locals(const std::vector<net::Ipv4Interface
                                             std::optional<std::uint32_t> gateway);
 
 // Where `socket` can be reached. Bounded by a few seconds; stops early on `stop`.
-DirectGathered gather_direct(const std::stop_token &stop, const net::UdpSocket &socket,
+DirectGathered gather_direct(const StopToken &stop, const net::UdpSocket &socket,
                              const DirectNetwork &network);
 
 } // namespace lucent::p2p

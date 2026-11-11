@@ -1,6 +1,7 @@
 #include "lucent/p2p/nat_pmp.h"
 #include "lucent/p2p/port_lease.h"
 #include "lucent/p2p/upnp_igd.h"
+#include "lucent/worker.h"
 
 #include <algorithm>
 #include <atomic>
@@ -10,7 +11,6 @@
 #include <memory>
 #include <mutex>
 #include <optional>
-#include <stop_token>
 #include <string>
 #include <thread>
 #include <vector>
@@ -44,7 +44,7 @@ std::uint16_t word_at(std::string_view bytes, std::size_t at) {
 class Gateway {
 public:
   explicit Gateway(std::uint32_t granted)
-      : granted_{granted}, thread_{[this](const std::stop_token &stop) {
+      : granted_{granted}, thread_{[this](const lucent::StopToken &stop) {
           serve(stop);
         }} {
   }
@@ -60,7 +60,7 @@ public:
   }
 
 private:
-  void serve(const std::stop_token &stop) {
+  void serve(const lucent::StopToken &stop) {
     std::vector<char> buffer(64);
     while (!stop.stop_requested()) {
       Endpoint from;
@@ -93,7 +93,7 @@ private:
   UdpSocket socket_{bound()};
   std::atomic<int> maps_{0};
   std::atomic<int> removals_{0};
-  std::jthread thread_;
+  lucent::Worker thread_;
 };
 
 std::unique_ptr<NatPmp> nat_pmp(Endpoint gateway) {
@@ -155,7 +155,7 @@ public:
     static_cast<void>(started);
     location_ =
         setup_.location.value_or("http://127.0.0.1:" + std::to_string(soap_.port()) + "/desc.xml");
-    answering_ = std::jthread{[this](const std::stop_token &stop) {
+    answering_ = lucent::Worker{[this](const lucent::StopToken &stop) {
       std::vector<char> buffer(2048);
       while (!stop.stop_requested()) {
         Endpoint from;
@@ -211,11 +211,11 @@ private:
   lucent::http::Server soap_;
   std::string location_;
   UdpSocket ssdp_{bound()};
-  std::jthread answering_;
+  lucent::Worker answering_;
 };
 
 std::unique_ptr<UpnpIgd> found(const Router &router) {
-  return UpnpIgd::discover(std::stop_token{}, router.ssdp(), kLoopback, 500ms);
+  return UpnpIgd::discover(lucent::StopToken{}, router.ssdp(), kLoopback, 500ms);
 }
 
 void upnp_maps_with_a_short_lease_and_deletes() {

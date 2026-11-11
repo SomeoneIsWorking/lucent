@@ -4,11 +4,10 @@
 #include <cstdint>
 #include <filesystem>
 #include <memory>
-#include <stop_token>
 #include <string>
-#include <thread>
 
 #include "lucent/p2p/zerotier_paths.h"
+#include "lucent/worker.h"
 
 // The embedded ZeroTier backend (`lucent::zerotier`): one libzt node in the process on one
 // controller-less ad-hoc network, the application's. No install, root or account: the node is a
@@ -45,7 +44,7 @@ public:
   ZeroTierNode &operator=(ZeroTierNode &&) = delete;
 
   // Waits at most `wait` for the node to have its address on the network.
-  bool wait_ready(const std::stop_token &stop, std::chrono::milliseconds wait) const;
+  bool wait_ready(const StopToken &stop, std::chrono::milliseconds wait) const;
 
   std::optional<ZeroTierReach> reach() const override;
   std::unique_ptr<Path> open(std::string &error) const override;
@@ -54,10 +53,10 @@ public:
 private:
   explicit ZeroTierNode(std::uint16_t network_port);
   // libzt joins a network only once the node is online.
-  void join_when_online(const std::stop_token &stop) const;
+  void join_when_online(const StopToken &stop) const;
 
   std::uint16_t network_port_;
-  std::jthread joiner_;
+  Worker joiner_;
 };
 
 } // namespace lucent::p2p

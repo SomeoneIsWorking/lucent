@@ -23,9 +23,11 @@ the core keeps the title-neutral socket pieces. The plan and its phases are
 | `Handshake`, `SessionKeys` | the one authenticated meeting over any path |
 | `ReliableLink` | ordered, capped messages over a sealed path |
 | `PathBridge` | a local process's datagrams over a path only this process can open |
+| `VirtualLan` | a LAN game's UDP to and from up to 16 friends, each shown at one 10.254.0.x address, sealed over its own connection |
 | `nostr::Event`, `nostr::Relay` | NIP-01 events (canonical form, id, BIP-340 signature) and one ws/wss relay: publish to OK, query to EOSE, forged events dropped |
 | `Directory`, `Lobby` | where a game lists open lobbies; it only carries the invite a host would share |
 | `LobbyBoard`, `HttpDirectory`, `lucent_lobby_server` | the self-hosted lobby list: the board as a `lucent::http::Server` handler, its client, and the executable that serves it |
+| `FirebaseDirectory`, `firebase_rules_json` | lobbies in a Firebase Realtime Database over REST, each player an anonymous user, and the rules that guard them |
 | `NostrDirectory` | lobbies as NIP-78 addressable events (`d` per lobby, `t` = `lucent-<game>`, NIP-40 expiry) on every relay at once |
 | `TlsStream`, `TlsTrust`, `system_roots_pem`, `connect_stream` | TLS 1.2+ over TCP (OpenSSL libssl) for the HTTP and WebSocket clients, checked against the system's roots and the name dialled; `connect_stream` picks TLS or TCP from a `net::Url` |
 | `ZeroTierPaths` | the seam the connector reaches ZeroTier through, if the application gives it one |
@@ -55,6 +57,16 @@ The application keeps its message kinds and caps, its wording, its patience and 
    (a game runner) cannot open a ZeroTier path, so the application keeps the path in a
    `PathBridge` for the game: the runner sends to `local()` on loopback and the bridge carries it to
    the peer and back. Only loopback senders reach the peer and only the peer reaches the runner.
+6. A game with its own LAN netcode and many friends (X-Men Legends II) gives every `Connection` to
+   one `VirtualLan`. The application numbers the session (the host hands out 10.254.0.2 upward, so
+   every machine sees a friend at one address) or takes the next free address. The LAN owns each
+   connection and seals under `kLinkPurpose`, with a keepalive each way every second: the friend's
+   first one completes the host's meeting while the game is silent, and later ones hold NAT
+   mappings open. The game's datagram to a friend's address goes out with both ports ahead of the
+   bytes; a friend's datagram arrives at the game's port on 127.0.0.1 from a loopback
+   socket kept per friend and source port, and `source_of` turns that socket's port back into the
+   friend's address for the game's hooks. A datagram is taken only from the friend's peer and only
+   under its keys.
 
 ## Discovery
 
@@ -68,7 +80,8 @@ threads at once and one relay that answers is enough; the log line names the one
 `kDefaultNostrRelays` are relays shown to store and return such an event; an application can pass
 its own. Nothing about a lobby is trusted beyond its invite: a code from a stranger only connects
 to that stranger. `Lobby` fields and their limits, `publishable` and the JSON form
-(`lobby_json`, `lobby_of_json`) are one codec in `directory.h` for both directories.
+(`lobby_json`, `lobby_of_json`), `kLobbySeconds` (300) and `unix_seconds` are one codec in
+`directory.h` for every directory.
 
 `lucent_lobby_server [--port N]` (default 8077) serves a `LobbyBoard` on every IPv4 interface until
 SIGINT or SIGTERM; TLS, when wanted, is a reverse proxy in front. A game points an `HttpDirectory`
@@ -81,6 +94,16 @@ of a token only that host's directory holds, so nobody else replaces or withdraw
 | `PUT /v1/lobbies` | `{"game","token","lobby":{id,title,invite,players,capacity,version}}` | `{"expires_at"}` |
 | `POST /v1/lobbies/withdraw` | `{"game","token","id"}` | `{}` |
 | `GET /v1/lobbies?game=G` | | `{"lobbies":[{...,"host","expires_at"}]}`, newest first |
+
+`FirebaseDirectory` keeps lobbies in a Firebase Realtime Database on the free Spark plan, over REST
+with no SDK. Each player signs in anonymously (Identity Toolkit `accounts:signUp`, the token
+service refreshing the ID token a minute before it lapses) and writes
+`/lucent/lobbies/<game>/<uid>-<32 hex of sha256(id)>` with its `host` and `expires_at`. The rules
+from `firebase_rules_json()` let only that user write the key, any signed-in player delete an
+expired one, cap every field and the expiry at 600 s ahead, and index `expires_at`. `list` asks
+for lobbies expiring after now (`orderBy="expires_at"&startAt`, at most 200) and keeps only those
+whose key starts with their `host`; each publish deletes up to 8 expired lobbies. `FirebaseProject`
+names the Web API key and database URL, or the Local Emulator Suite's auth URL and namespace.
 
 ## ZeroTier
 
@@ -113,7 +136,9 @@ already there connects about 2 s after pasting the code.
   lab root needs its address on the link its peers reach it by. A lab root is any node
   whose identity is in a root set signed with `zts_util_sign_root_set` at a non-loopback address;
   `ZeroTierConfig::roots` takes that set instead of ZeroTier's public roots. `make_root` writes such
-  an identity into a node's storage and returns the set.
+  an identity into a node's storage and returns the set. `lucent_zerotier_root <storage>
+  <address/port> <roots file>` (UNIX, not Android) is that root as a program for a game's lab:
+  it writes the set to the file and runs until SIGINT or SIGTERM.
 - A host whose node is not on its network yet waits up to `Patience::zerotier` for it before
   showing the code; a friend's path opens at once and its handshake resends until the node is.
 

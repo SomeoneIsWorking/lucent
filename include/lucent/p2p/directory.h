@@ -35,6 +35,11 @@ inline constexpr std::size_t kMaxLobbyTitleBytes = 128;
 inline constexpr std::size_t kMaxLobbyInviteBytes = 2048;
 inline constexpr std::size_t kMaxLobbyVersionBytes = 64;
 inline constexpr int kMaxLobbyCapacity = 1024;
+// A lobby lapses this long after its host last published it, in every directory.
+inline constexpr std::int64_t kLobbySeconds = 300;
+
+// The system clock in Unix seconds, the unit of `Lobby::expires_at`.
+std::int64_t unix_seconds();
 
 // A game's name in a directory: 1 to 32 of a-z, 0-9, '-', '_' and '.'.
 bool valid_game_name(std::string_view game) noexcept;

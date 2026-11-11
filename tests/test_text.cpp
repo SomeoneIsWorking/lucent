@@ -60,6 +60,11 @@ int main() {
       std::cerr << "hex and from_hex disagree with the bytes\n";
       ++failures;
     }
+    if (lucent::text::url_encode("\"expires_at\" a/b~c.d-e_f\xff") !=
+        "%22expires_at%22%20a%2Fb~c.d-e_f%FF") {
+      std::cerr << "url_encode keeps only unreserved bytes\n";
+      ++failures;
+    }
     return failures == 0 ? 0 : 1;
   });
 }
