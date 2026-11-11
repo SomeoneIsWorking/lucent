@@ -8,7 +8,7 @@ title-neutral runtime capabilities once, with bounded behavior and tested owners
 
 ## Current focus
 
-S016 is the current focus.
+S017 is the current focus.
 
 ## Capability inventory
 
@@ -28,7 +28,7 @@ S016 is the current focus.
 | S013 | Linux applications stage immutable binary backing files asynchronously with bounded lifetime storage | verified | S002 | G001 |
 | S014 | Programs measure their cost in units host load does not move: per-thread instructions or CPU time, summed across handoff threads, with count percentiles | verified | — | G001 |
 | S015 | Two players connect by a pasted code over direct UDP: STUN, NAT-PMP, UPnP, a reply code and hole punching, then an authenticated handshake and reliable link | verified: `ctest -R p2p`, and openSU plays on it (openSU 4029764a) through every `tools.nat_lab` case, symmetric NATs failing as expected and `zerotier` connecting over a ZeroTier interface | S003 | G001 |
-| S016 | Embedded ZeroTier joins a controller-less ad-hoc network in-process and connects players whose direct paths fail | partial: `ctest -R zerotier` connects two processes over ZeroTier alone through a lab root, about 2 s from a pasted code with warm nodes, and refuses a stranger; an application on it and openSU's NAT lab on it missing | S015 | G001 |
+| S016 | Embedded ZeroTier joins a controller-less ad-hoc network in-process and connects players whose direct paths fail | verified: `ctest -R zerotier` connects two processes over ZeroTier alone through a lab root, about 2 s from a pasted code with warm nodes, and refuses a stranger; openSU (87afc561) plays a game through `tools.nat_lab zerotier-embedded`, symmetric NATs on both sides, its runner over `PathBridge` | S015 | G001 |
 | S017 | Lobbies are published and listed on Nostr relays, with a self-hosted lobby as a config change away | missing (plan 0006) | S015 | G001 |
 | S018 | One title-neutral rollback engine runs a game's session over the transport | missing (plan 0006) | S015 | G001 |
 | S019 | Browser builds connect over WebRTC data channels | missing (plan 0006) | S015 | G001 |
