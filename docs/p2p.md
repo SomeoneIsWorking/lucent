@@ -107,8 +107,8 @@ names the Web API key and database URL, or the Local Emulator Suite's auth URL a
 
 ## ZeroTier
 
-libzt (fork `SomeoneIsWorking/libzt` at `6e74b65`, ZeroTierOne from `SomeoneIsWorking/ZeroTierOne`
-branch `lucent` at `b5ef81a3`) is installed into a prefix outside the repo and found as
+libzt (fork `SomeoneIsWorking/libzt` at `9932062`, ZeroTierOne from `SomeoneIsWorking/ZeroTierOne`
+branch `lucent` at `23c01391`) is installed into a prefix outside the repo and found as
 `libzt::zt`; the configure error names the commands. One node per process: libzt refuses a second,
 and `zts_node_free` would end it for the process, so the node's destructor only stops it. Each
 application has one ad-hoc network, named by its `ZeroTierConfig::network_port`; the node joins it

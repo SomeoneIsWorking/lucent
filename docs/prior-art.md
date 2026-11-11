@@ -8,8 +8,8 @@ What Lucent takes from others, under which licence, at which revision.
 |---|---|---|
 | openSU `src/online` (ours, MIT) | MIT | The direct backend, handshake, reliable link and codes, moved here and made title-neutral (Lucent 56a58ed) |
 | OpenSSL 3 libcrypto | Apache-2.0 | Random bytes, SHA-256, HMAC, HKDF, ChaCha20-Poly1305, X25519, linked from the system or the consumer's prefix |
-| zerotier/libzt, fork `SomeoneIsWorking/libzt` at `6e74b65` (upstream `a707ea6` plus packaging and the Windows build) | BSL 1.1 until its Change Date 2026-01-01, Apache-2.0 since (`LICENSE.txt`) | The embedded ZeroTier node and its socket API (phase 2); fork changes are commits there |
-| ZeroTierOne, fork `SomeoneIsWorking/ZeroTierOne` branch `lucent` at `b5ef81a3` (upstream `c53c6bd9c3` plus a libstdc++ 16 include and clang-cl fixes) | BSL 1.1 until 2025-01-01, Apache-2.0 since | The ZeroTier core libzt builds |
+| zerotier/libzt, fork `SomeoneIsWorking/libzt` at `9932062` (upstream `a707ea6` plus packaging and the Windows build, `/EHsc` only under MSVC) | BSL 1.1 until its Change Date 2026-01-01, Apache-2.0 since (`LICENSE.txt`) | The embedded ZeroTier node and its socket API (phase 2); fork changes are commits there |
+| ZeroTierOne, fork `SomeoneIsWorking/ZeroTierOne` branch `lucent` at `23c01391` (upstream `c53c6bd9c3` plus a libstdc++ 16 include and clang-cl and llvm-mingw fixes) | BSL 1.1 until 2025-01-01, Apache-2.0 since | The ZeroTier core libzt builds |
 | lwIP `32708c0a8b` and lwip-contrib `4fd612c9c7` | BSD-3-Clause | libzt's user-space IP stack |
 | miniupnpc and libnatpmp (in ZeroTierOne `ext/`) | BSD-3-Clause | ZeroTier's own router port mapping |
 | concurrentqueue (libzt `ext/`) | Simplified BSD | libzt's event queue |
