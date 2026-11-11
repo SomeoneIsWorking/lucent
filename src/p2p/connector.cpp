@@ -15,8 +15,6 @@ using namespace std::chrono_literals;
 // Keeps the NAT's mapping alive while a code is out.
 constexpr auto kStunKeepEvery = 15s;
 constexpr auto kStepWait = 50ms;
-// A session's ad-hoc network, chosen afresh for each code.
-constexpr std::uint16_t kFirstZeroTierPort = 49152;
 
 std::vector<PathAddress> path_addresses(const DirectReach &reach) {
   std::vector<PathAddress> out;
@@ -33,12 +31,6 @@ std::unique_ptr<UdpPath> new_path() {
     throw std::runtime_error{error};
   }
   return std::make_unique<UdpPath>(std::move(*socket));
-}
-
-std::uint16_t random_zerotier_port() {
-  const crypto::Bytes bytes = crypto::random_bytes(2);
-  const auto drawn = static_cast<std::uint16_t>((bytes[0] << 8u) | bytes[1]);
-  return static_cast<std::uint16_t>(kFirstZeroTierPort + drawn % (0x10000u - kFirstZeroTierPort));
 }
 
 std::string_view text_of(Connector::Failure failure) {
@@ -140,9 +132,9 @@ void Connector::run(const std::stop_token &stop) {
   }
 }
 
-std::unique_ptr<Path> Connector::open_zerotier(std::uint16_t port) {
+std::unique_ptr<Path> Connector::open_zerotier() {
   std::string error;
-  std::unique_ptr<Path> path = config_.zerotier->open(port, error);
+  std::unique_ptr<Path> path = config_.zerotier->open(error);
   if (!path) {
     lucent::log(Level::Warn, "p2p", "no ZeroTier path: " + error);
   }
@@ -168,12 +160,21 @@ bool Connector::find(const std::stop_token &stop, std::unique_ptr<UdpPath> &path
   auto handshake = std::make_unique<Handshake>(*path, role_, invite_.secret, config_.label);
   std::unique_ptr<Path> zerotier_path;
   std::optional<PathAddress> zerotier_peer;
+  std::optional<ZeroTierReach> zerotier_reach;
   if (config_.zerotier != nullptr) {
-    if (host) {
-      zerotier_path = open_zerotier(random_zerotier_port());
+    zerotier_reach = config_.zerotier->reach();
+    if (host && zerotier_reach) {
+      zerotier_path = open_zerotier();
     } else if (const std::optional<ZeroTierReach> &reach = invite_.descriptor.zerotier) {
-      zerotier_path = open_zerotier(reach->port);
-      zerotier_peer = zerotier_address(reach->node, reach->port);
+      zerotier_peer = config_.zerotier->address_of(*reach);
+      if (zerotier_peer) {
+        zerotier_path = open_zerotier();
+      } else {
+        lucent::log(Level::Info, "p2p", "the code's ZeroTier network is not this application's");
+      }
+    }
+    if (!zerotier_reach) {
+      lucent::log(Level::Info, "p2p", "ZeroTier is not on its network yet");
     }
   }
   std::unique_ptr<Handshake> zerotier;
@@ -189,7 +190,7 @@ bool Connector::find(const std::stop_token &stop, std::unique_ptr<UdpPath> &path
   if (host) {
     invite_.descriptor.direct = gathered.reach;
     if (zerotier_path) {
-      invite_.descriptor.zerotier = ZeroTierReach{config_.zerotier->id(), zerotier_path->port()};
+      invite_.descriptor.zerotier = zerotier_reach;
     }
     offer(write_invite(invite_, config_.prefixes), gathered.reach.varying, Step::Inviting);
   } else if (invite_.descriptor.direct || zerotier) {

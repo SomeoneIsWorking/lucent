@@ -4,6 +4,7 @@
 #include "lucent/p2p/connector.h"
 #include "lucent/p2p/crypto.h"
 #include "lucent/p2p/reliable_link.h"
+#include "lucent/p2p/zerotier.h"
 
 #include <ZeroTierSockets.h>
 
@@ -32,6 +33,12 @@ using namespace std::chrono_literals;
 
 constexpr const char *kLabAddress = "10.77.0.1";
 constexpr std::uint16_t kRootPort = 39993;
+constexpr std::uint16_t kNetworkPort = 47000;
+using Clock = std::chrono::steady_clock;
+
+long long ms_since(Clock::time_point start) {
+  return std::chrono::duration_cast<std::chrono::milliseconds>(Clock::now() - start).count();
+}
 
 std::string read_file(const std::filesystem::path &path) {
   std::ifstream in{path, std::ios::binary};
@@ -84,16 +91,18 @@ void make_root(const std::filesystem::path &dir) {
 std::unique_ptr<ZeroTierNode> node(const std::filesystem::path &dir, const char *name,
                                    std::uint16_t port) {
   std::string error;
-  auto started =
-      ZeroTierNode::start(ZeroTierConfig{dir / name, read_file(dir / "roots"), port}, error);
+  const Clock::time_point begun = Clock::now();
+  auto started = ZeroTierNode::start(
+      ZeroTierConfig{dir / name, read_file(dir / "roots"), port, kNetworkPort}, error);
   if (!started) {
     std::fprintf(stderr, "%s: %s\n", name, error.c_str());
     std::exit(1);
   }
-  if (!started->wait_online(std::stop_token{}, 60s)) {
-    std::fprintf(stderr, "%s: never online\n", name);
+  if (!started->wait_ready(std::stop_token{}, 60s)) {
+    std::fprintf(stderr, "%s: never on its network\n", name);
     std::exit(1);
   }
+  std::fprintf(stderr, "%s: on the network %lld ms after starting\n", name, ms_since(begun));
   return started;
 }
 
@@ -103,7 +112,7 @@ LinkCaps test_caps() {
   return caps;
 }
 
-ConnectorConfig zerotier_only(const ZeroTierNode &zerotier) {
+ConnectorConfig zerotier_only(const ZeroTierPaths &zerotier) {
   ConnectorConfig config;
   config.direct.stun_servers = "";
   config.direct.router = false;
@@ -154,17 +163,38 @@ int run_host(const std::filesystem::path &dir) {
   return 0;
 }
 
+// Someone who knows the host's node and network, which are public, but not the code's secret.
+int run_stranger(const std::filesystem::path &dir, const std::string &code) {
+  const auto zerotier = node(dir, "stranger", kRootPort + 3);
+  ConnectorConfig config = zerotier_only(*zerotier);
+  config.patience.friend_tries = 20s;
+  CodeProblem problem{};
+  std::optional<Invite> invite = read_invite(code, config.prefixes, problem);
+  assert(invite);
+  invite->secret = crypto::random_bytes(kSecretBytes);
+  Connector connector{std::move(config), std::move(*invite)};
+  for (int round = 0; round < 250 && connector.view().step != Connector::Step::Connected &&
+                      connector.view().step != Connector::Step::Failed;
+       ++round) {
+    std::this_thread::sleep_for(100ms);
+  }
+  std::printf("%s\n", connector.view().step == Connector::Step::Connected ? "connected" : "none");
+  return 0;
+}
+
 int run_friend(const std::filesystem::path &dir, const std::string &code) {
   const auto zerotier = node(dir, "friend", kRootPort + 2);
   ConnectorConfig config = zerotier_only(*zerotier);
   CodeProblem problem{};
   std::optional<Invite> invite = read_invite(code, config.prefixes, problem);
   assert(invite && invite->descriptor.zerotier);
+  const Clock::time_point pasted = Clock::now();
   Connector connector{std::move(config), std::move(*invite)};
   for (int round = 0; round < 1200 && connector.view().step != Connector::Step::Connected;
        ++round) {
-    std::this_thread::sleep_for(100ms);
+    std::this_thread::sleep_for(10ms);
   }
+  std::fprintf(stderr, "friend: connected %lld ms after pasting the code\n", ms_since(pasted));
   const auto connection = connector.take();
   if (!connection || connection->path->backend() != Backend::ZeroTier) {
     std::fprintf(stderr, "friend: no ZeroTier connection\n");
@@ -258,8 +288,11 @@ int run_test(const std::string &self) {
   Child host = spawn(self, {"host", dir.string()}, true);
   const std::string code = first_line(host.output);
   assert(code.starts_with("TST"));
+  Child stranger = spawn(self, {"stranger", dir.string(), code}, true);
   Child other = spawn(self, {"friend", dir.string(), code}, true);
   const std::string friend_key = first_line(other.output);
+  const std::string stranger_result = first_line(stranger.output);
+  const int stranger_status = stranger.wait();
   const std::string host_key = first_line(host.output);
   const int friend_status = other.wait();
   const int host_status = host.wait();
@@ -268,7 +301,8 @@ int run_test(const std::string &self) {
   std::filesystem::remove_all(dir);
   assert(friend_status == 0 && host_status == 0);
   assert(!host_key.empty() && host_key == friend_key);
-  std::puts("two processes connected over ZeroTier alone and agree on keys");
+  assert(stranger_status == 0 && stranger_result == "none");
+  std::puts("two processes connected over ZeroTier alone and agree on keys; a stranger did not");
   return 0;
 }
 
@@ -286,6 +320,9 @@ int main(int argc, char **argv) {
   }
   if (role == "host") {
     return run_host(dir);
+  }
+  if (role == "stranger") {
+    return run_stranger(dir, argv[3]);
   }
   return run_friend(dir, argv[3]);
 }

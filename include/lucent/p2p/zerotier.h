@@ -6,11 +6,12 @@
 #include <memory>
 #include <stop_token>
 #include <string>
+#include <thread>
 
-#include "lucent/p2p/path.h"
+#include "lucent/p2p/zerotier_paths.h"
 
-// The embedded ZeroTier backend: one libzt node in the process, and a path per port on the
-// controller-less ad-hoc network that port names. No install, root or account: the node is a
+// The embedded ZeroTier backend (`lucent::zerotier`): one libzt node in the process on one
+// controller-less ad-hoc network, the application's. No install, root or account: the node is a
 // library. Nothing it carries is trusted until it opens under the code's key, as on any path.
 namespace lucent::p2p {
 
@@ -19,35 +20,38 @@ struct ZeroTierConfig {
   std::filesystem::path storage;
   // A signed root set (`zts_util_sign_root_set`); empty uses ZeroTier's public roots.
   std::string roots;
-  // The node's UDP port; 0 lets it choose.
+  // The node's own UDP port on the real network; 0 lets it choose.
   std::uint16_t port = 0;
+  // The application's port, which names its ad-hoc network and the UDP port on it.
+  std::uint16_t network_port = 0;
 };
 
-// A peer's address on the ad-hoc network for `port`: its 6PLANE address there.
-PathAddress zerotier_address(std::uint64_t node, std::uint16_t port);
-
-// The process's one ZeroTier node; libzt refuses a second.
-class ZeroTierNode {
+// The process's one ZeroTier node; libzt refuses a second. Started when the application's online
+// menu opens, so it has its roots and its network before a code is made or pasted.
+class ZeroTierNode final : public ZeroTierPaths {
 public:
-  // A started node, or nothing with the reason in `error`. It comes online on its own.
+  // A started node joining its network, or nothing with the reason in `error`.
   static std::unique_ptr<ZeroTierNode> start(const ZeroTierConfig &config, std::string &error);
-  ~ZeroTierNode();
+  ~ZeroTierNode() override;
   ZeroTierNode(const ZeroTierNode &) = delete;
   ZeroTierNode &operator=(const ZeroTierNode &) = delete;
   ZeroTierNode(ZeroTierNode &&) = delete;
   ZeroTierNode &operator=(ZeroTierNode &&) = delete;
 
-  bool online() const noexcept;
-  // Waits at most `wait` for the node to reach its roots.
-  bool wait_online(const std::stop_token &stop, std::chrono::milliseconds wait) const;
-  // The node's 40-bit address.
-  std::uint64_t id() const noexcept;
-  // A path on the ad-hoc network for `port`, or nothing with the reason in `error`. It sends
-  // nothing until the node has its address there, which takes a few seconds after joining.
-  std::unique_ptr<Path> open(std::uint16_t port, std::string &error) const;
+  // Waits at most `wait` for the node to have its address on the network.
+  bool wait_ready(const std::stop_token &stop, std::chrono::milliseconds wait) const;
+
+  std::optional<ZeroTierReach> reach() const override;
+  std::unique_ptr<Path> open(std::string &error) const override;
+  std::optional<PathAddress> address_of(const ZeroTierReach &peer) const override;
 
 private:
-  ZeroTierNode() = default;
+  explicit ZeroTierNode(std::uint16_t network_port);
+  // libzt joins a network only once the node is online.
+  void join_when_online(const std::stop_token &stop) const;
+
+  std::uint16_t network_port_;
+  std::jthread joiner_;
 };
 
 } // namespace lucent::p2p

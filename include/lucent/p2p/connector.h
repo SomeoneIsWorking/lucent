@@ -15,7 +15,7 @@
 #include "lucent/p2p/handshake.h"
 #include "lucent/p2p/path.h"
 #include "lucent/p2p/port_lease.h"
-#include "lucent/p2p/zerotier.h"
+#include "lucent/p2p/zerotier_paths.h"
 
 // Two people getting from a code to an authenticated path, on a thread of its own: this machine's
 // reach gathered, the code shown, then the other machine found by the handshake over each backend
@@ -39,8 +39,8 @@ struct Patience {
 
 struct ConnectorConfig {
   DirectNetwork direct;
-  // The application's node, which outlives the connector; none leaves ZeroTier out.
-  const ZeroTierNode *zerotier = nullptr;
+  // The application's ZeroTier, which outlives the connector; none leaves ZeroTier out.
+  const ZeroTierPaths *zerotier = nullptr;
   Patience patience;
   CodePrefixes prefixes;
   // Separates this application's keys from another's ("opensu-online").
@@ -113,7 +113,7 @@ public:
 private:
   void run(const std::stop_token &stop);
   bool find(const std::stop_token &stop, std::unique_ptr<UdpPath> &path, DirectGathered &gathered);
-  std::unique_ptr<Path> open_zerotier(std::uint16_t port);
+  std::unique_ptr<Path> open_zerotier();
   void connect(std::unique_ptr<Path> path, const Found &found, std::unique_ptr<PortLease> lease);
   void fail(Failure failure);
   void show(Step step);
