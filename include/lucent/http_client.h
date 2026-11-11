@@ -37,6 +37,10 @@ struct FetchRequest {
 // by the connection closing is read; chunked transfer is refused and named in `error`.
 bool fetch(const net::Endpoint &server, const FetchRequest &request, FetchResult &result,
            std::string &error);
+// The same request over a connected `stream` (TLS from `lucent::online` for https), naming `host`
+// ("name" or "name:port") in the Host header. The stream is spent: the server closes it.
+bool fetch(net::ByteStream &stream, std::string_view host, const FetchRequest &request,
+           FetchResult &result, std::string &error);
 
 // GETs `target` from 127.0.0.1:`port` over one connection. A response framed by Content-Length or
 // by the connection closing is read; chunked transfer is refused and named in `error`.

@@ -1,9 +1,13 @@
 #pragma once
 
+#include <cstddef>
 #include <cstdint>
 #include <optional>
 #include <string>
+#include <string_view>
 #include <vector>
+
+#include "lucent/json.h"
 
 // Where a game lists its open lobbies, so players find one without trading a code by hand. A
 // directory only carries the invite code a host would share; every game stays playable by code
@@ -24,6 +28,24 @@ struct Lobby {
   std::string host;
   std::int64_t expires_at = 0;
 };
+
+// Longest fields a directory carries; a lobby past one is not published or listed.
+inline constexpr std::size_t kMaxLobbyIdBytes = 64;
+inline constexpr std::size_t kMaxLobbyTitleBytes = 128;
+inline constexpr std::size_t kMaxLobbyInviteBytes = 2048;
+inline constexpr std::size_t kMaxLobbyVersionBytes = 64;
+inline constexpr int kMaxLobbyCapacity = 1024;
+
+// A game's name in a directory: 1 to 32 of a-z, 0-9, '-', '_' and '.'.
+bool valid_game_name(std::string_view game) noexcept;
+// The lobby's id, title, invite, players, capacity and version as a JSON object, plus its host
+// and expiry when `listing`.
+std::string lobby_json(const Lobby &lobby, bool listing);
+// Within every limit above, with an id, an invite, and seats that add up.
+bool publishable(const Lobby &lobby) noexcept;
+// The lobby a JSON object describes, host and expiry included when present; nothing for a missing
+// or mistyped field or one that is not publishable.
+std::optional<Lobby> lobby_of_json(const json::Value &value);
 
 class Directory {
 public:

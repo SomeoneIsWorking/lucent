@@ -86,7 +86,8 @@ state, load state, advance one frame, set the pads. GGPO (MIT) and its forks are
    arm64-v8a and x86_64.
 3. Nostr discovery. **Shown in Lucent** (`NostrDirectory`, live on the five default relays); a game's
    lobby screen consuming it is next.
-4. Self-hosted lobby.
+4. Self-hosted lobby. **Shown in Lucent** (`LobbyBoard`, `HttpDirectory`, `lucent_lobby_server`, live
+   on a LAN address); the user rents a server when the relays are not enough.
 5. Rollback engine with psxport (Crash Bash 4-player), then LF2.
 6. X-Men Legends II: game's own LAN netcode over the transport; broadcast discovery becomes unicast to
    friend codes and directory entries.

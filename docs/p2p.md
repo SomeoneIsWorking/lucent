@@ -25,8 +25,9 @@ the core keeps the title-neutral socket pieces. The plan and its phases are
 | `PathBridge` | a local process's datagrams over a path only this process can open |
 | `nostr::Event`, `nostr::Relay` | NIP-01 events (canonical form, id, BIP-340 signature) and one ws/wss relay: publish to OK, query to EOSE, forged events dropped |
 | `Directory`, `Lobby` | where a game lists open lobbies; it only carries the invite a host would share |
+| `LobbyBoard`, `HttpDirectory`, `lucent_lobby_server` | the self-hosted lobby list: the board as a `lucent::http::Server` handler, its client, and the executable that serves it |
 | `NostrDirectory` | lobbies as NIP-78 addressable events (`d` per lobby, `t` = `lucent-<game>`, NIP-40 expiry) on every relay at once |
-| `TlsStream`, `TlsTrust`, `system_roots_pem` | TLS 1.2+ over TCP (OpenSSL libssl) for the HTTP and WebSocket clients, checked against the system's roots and the name dialled |
+| `TlsStream`, `TlsTrust`, `system_roots_pem`, `connect_stream` | TLS 1.2+ over TCP (OpenSSL libssl) for the HTTP and WebSocket clients, checked against the system's roots and the name dialled; `connect_stream` picks TLS or TCP from a `net::Url` |
 | `ZeroTierPaths` | the seam the connector reaches ZeroTier through, if the application gives it one |
 | `ZeroTierNode` (`lucent::zerotier`) | the process's one embedded libzt node on the application's ad-hoc network |
 | `Connector` | invite → (reply) → found, every backend at once, on its own thread |
@@ -66,7 +67,20 @@ are withdrawn, lapsed, malformed or fail their id or signature. Every call reach
 threads at once and one relay that answers is enough; the log line names the ones that did not.
 `kDefaultNostrRelays` are relays shown to store and return such an event; an application can pass
 its own. Nothing about a lobby is trusted beyond its invite: a code from a stranger only connects
-to that stranger.
+to that stranger. `Lobby` fields and their limits, `publishable` and the JSON form
+(`lobby_json`, `lobby_of_json`) are one codec in `directory.h` for both directories.
+
+`lucent_lobby_server [--port N]` (default 8077) serves a `LobbyBoard` on every IPv4 interface until
+SIGINT or SIGTERM; TLS, when wanted, is a reverse proxy in front. A game points an `HttpDirectory`
+at its base URL instead of, or beside, the relays. The board keys a lobby by its host, the SHA-256
+of a token only that host's directory holds, so nobody else replaces or withdraws it; a lobby lapses
+300 s after its last publish, and the board holds at most 500 lobbies per game and 256 games.
+
+| Request | Body | Answer |
+|---|---|---|
+| `PUT /v1/lobbies` | `{"game","token","lobby":{id,title,invite,players,capacity,version}}` | `{"expires_at"}` |
+| `POST /v1/lobbies/withdraw` | `{"game","token","id"}` | `{}` |
+| `GET /v1/lobbies?game=G` | | `{"lobbies":[{...,"host","expires_at"}]}`, newest first |
 
 ## ZeroTier
 
@@ -132,7 +146,10 @@ from a pasted invite, and a TLS stream reaches a loopback server whose certifica
 for one name while another name or an untrusted root is refused. Nostr events sign and read
 back, a relay stand-in refuses one and answers a query with a forged event among real ones, and a
 `NostrDirectory` over two stand-ins and a dead relay lists a lobby once and drops withdrawn, lapsed,
-forged and other games' ones. Live, on the default relays: publish reaches all five in about 1.5 s
+forged and other games' ones. A `LobbyBoard` on a loopback server with a stepped clock lists,
+withdraws (only for its host) and lapses lobbies for two `HttpDirectory`s and refuses malformed
+requests. Live, `lucent_lobby_server` on this machine's LAN address serves a host and a friend
+(2026-11-11). Live, on the default relays: publish reaches all five in about 1.5 s
 and a second key lists the lobby with its fields, then none after withdraw (2026-11-11). `lucent_p2p_zerotier_tests` (Linux) runs in its own network namespace with a
 dummy interface: a lab root, a host, a friend and a stranger, one process each. Host and friend
 connect by a code over ZeroTier alone and trade a message on the reliable link; the stranger, who

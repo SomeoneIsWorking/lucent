@@ -7,6 +7,7 @@
 
 #include "lucent/byte_stream.h"
 #include "lucent/ipv4.h"
+#include "lucent/url.h"
 
 // TLS 1.2 or later over a TCP stream, for the HTTP and WebSocket clients: the server's certificate
 // is checked against the system's roots and the name dialled.
@@ -44,6 +45,10 @@ private:
 
   std::unique_ptr<Session> session_;
 };
+
+// A stream to `url`'s host: TLS for https and wss, plain TCP for http and ws.
+std::unique_ptr<net::ByteStream> connect_stream(const net::Url &url, const TlsTrust &trust,
+                                                std::string &error);
 
 // The system's roots as concatenated PEM where OpenSSL has no path to them (Android, macOS,
 // Windows), for TLS here and for another client such as libcurl; empty on Linux, where OpenSSL's

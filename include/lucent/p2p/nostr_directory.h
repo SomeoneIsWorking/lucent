@@ -27,7 +27,8 @@ inline constexpr int kNostrLobbyKind = 30078;
 // enough. The signing key is this object's own, so a host is a fresh key each run.
 class NostrDirectory final : public Directory {
 public:
-  NostrDirectory(std::string game, std::vector<std::string> relays, TlsTrust trust);
+  // Throws std::invalid_argument for a game name `valid_game_name` refuses.
+  NostrDirectory(const std::string &game, std::vector<std::string> relays, TlsTrust trust);
   ~NostrDirectory() override;
   NostrDirectory(const NostrDirectory &) = delete;
   NostrDirectory &operator=(const NostrDirectory &) = delete;

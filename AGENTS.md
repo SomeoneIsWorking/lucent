@@ -20,9 +20,10 @@ is dependency-free; optional `lucent::zip` adds zlib-backed archive extraction a
 - `network_interfaces` owns host IPv4 interface enumeration (address, netmask, broadcast,
   flags), the default gateway, and the rule for which broadcast addresses reach every LAN.
   `udp_socket` and `ipv4` own the IPv4 UDP socket and address type.
-- `online` (optional, `LUCENT_BUILD_ONLINE`, OpenSSL libcrypto; on by default only in Lucent's own
-  build) owns peer-to-peer transport in `lucent::p2p`: codes, NAT traversal, the authenticated
-  handshake and the reliable link (`docs/p2p.md`, plan `docs/plans/0006-online-framework.md`).
+- `online` (optional, `LUCENT_BUILD_ONLINE`, OpenSSL libcrypto and libssl; on by default only in
+  Lucent's own build) owns peer-to-peer transport in `lucent::p2p`: codes, NAT traversal, the
+  authenticated handshake, the reliable link, TLS, and lobby directories on Nostr relays or a
+  self-hosted `lucent_lobby_server` (`docs/p2p.md`, plan `docs/plans/0006-online-framework.md`).
   Consumers own message kinds and caps, wording, patience and UI.
 - `touch` owns platform-neutral contact-to-zone capture, multi-touch routing, and cancellation.
   Android/SDL3 shells own event acquisition, safe-area layout, and conversion from zone IDs to game

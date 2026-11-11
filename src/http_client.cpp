@@ -198,12 +198,15 @@ constexpr net::Endpoint loopback(std::uint16_t port) {
 bool fetch(const net::Endpoint &server, const FetchRequest &sent, FetchResult &result,
            std::string &error) {
   const std::unique_ptr<net::TcpStream> connection = net::TcpStream::connect(server, error);
-  if (!connection) {
-    return false;
-  }
+  return connection &&
+         fetch(*connection, net::format_ipv4(server.address) + ":" + std::to_string(server.port),
+               sent, result, error);
+}
+
+bool fetch(net::ByteStream &connection, std::string_view host, const FetchRequest &sent,
+           FetchResult &result, std::string &error) {
   std::string request = std::string{sent.method} + " " + std::string{sent.target} +
-                        " HTTP/1.1\r\nHost: " + net::format_ipv4(server.address) + ":" +
-                        std::to_string(server.port) + "\r\nConnection: close\r\n" +
+                        " HTTP/1.1\r\nHost: " + std::string{host} + "\r\nConnection: close\r\n" +
                         std::string{sent.headers};
   if (sent.body) {
     request += "Content-Length: " + std::to_string(sent.body->size()) + "\r\n\r\n";
@@ -212,7 +215,7 @@ bool fetch(const net::Endpoint &server, const FetchRequest &sent, FetchResult &r
     request += "\r\n";
   }
   Head head;
-  if (!connection->send_all(request, error) || !read_head(*connection, head, error)) {
+  if (!connection.send_all(request, error) || !read_head(connection, head, error)) {
     return false;
   }
   if (const auto encoding = header_value(head, "Transfer-Encoding");
@@ -236,7 +239,7 @@ bool fetch(const net::Endpoint &server, const FetchRequest &sent, FetchResult &r
       error = "response body too large";
       return false;
     }
-    const ReadOutcome outcome = connection->read_some(response);
+    const ReadOutcome outcome = connection.read_some(response);
     if (outcome == ReadOutcome::Closed && !length) {
       break;
     }

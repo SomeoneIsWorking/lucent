@@ -1,10 +1,8 @@
 #include "lucent/p2p/nostr.h"
 
-#include "lucent/ipv4.h"
+#include "lucent/url.h"
 #include "lucent/p2p/crypto.h"
 #include "lucent/text.h"
-
-#include <charconv>
 
 namespace lucent::p2p::nostr {
 namespace {
@@ -38,47 +36,6 @@ std::string id_of(const Event &event) {
 const std::string *string_member(const json::Value &value, std::string_view key) {
   const json::Value *member = value.find(key);
   return member != nullptr ? member->string() : nullptr;
-}
-
-struct Address {
-  bool secure = true;
-  std::string host;
-  std::uint16_t port = 443;
-  std::string path = "/";
-};
-
-// ws://host[:port][/path] or wss://...
-std::optional<Address> address_of(std::string_view url) {
-  Address address;
-  if (url.starts_with("wss://")) {
-    url.remove_prefix(6);
-  } else if (url.starts_with("ws://")) {
-    url.remove_prefix(5);
-    address.secure = false;
-    address.port = 80;
-  } else {
-    return std::nullopt;
-  }
-  const std::size_t slash = url.find('/');
-  if (slash != std::string_view::npos) {
-    address.path = std::string{url.substr(slash)};
-    url = url.substr(0, slash);
-  }
-  const std::size_t colon = url.rfind(':');
-  if (colon != std::string_view::npos) {
-    const std::string_view digits = url.substr(colon + 1);
-    const auto [end, problem] =
-        std::from_chars(digits.data(), digits.data() + digits.size(), address.port);
-    if (problem != std::errc{} || end != digits.data() + digits.size() || address.port == 0) {
-      return std::nullopt;
-    }
-    url = url.substr(0, colon);
-  }
-  if (url.empty()) {
-    return std::nullopt;
-  }
-  address.host = std::string{url};
-  return address;
 }
 
 } // namespace
@@ -181,31 +138,17 @@ Relay::Relay(std::unique_ptr<http::WebSocketClient> socket) noexcept : socket_{s
 
 std::unique_ptr<Relay> Relay::connect(std::string_view url, const TlsTrust &trust,
                                       std::string &error) {
-  const std::optional<Address> address = address_of(url);
-  if (!address) {
+  const std::optional<net::Url> address = net::parse_url(url);
+  if (!address || (address->scheme != "ws" && address->scheme != "wss")) {
     error = "not a ws:// or wss:// relay URL";
     return nullptr;
   }
-  std::unique_ptr<net::ByteStream> stream;
-  if (address->secure) {
-    stream = TlsStream::connect(address->host, address->port, trust, error);
-  } else {
-    const std::optional<net::Endpoint> at =
-        net::resolve_endpoint(address->host + ":" + std::to_string(address->port));
-    if (!at) {
-      error = "cannot resolve " + address->host;
-      return nullptr;
-    }
-    stream = net::TcpStream::connect(*at, error);
-  }
+  std::unique_ptr<net::ByteStream> stream = connect_stream(*address, trust, error);
   if (!stream) {
     return nullptr;
   }
   auto socket = std::make_unique<http::WebSocketClient>();
-  const bool default_port = address->port == (address->secure ? 443 : 80);
-  const std::string host =
-      default_port ? address->host : address->host + ":" + std::to_string(address->port);
-  if (!socket->connect(std::move(stream), host, address->path, error)) {
+  if (!socket->connect(std::move(stream), address->authority(), address->target, error)) {
     return nullptr;
   }
   return std::unique_ptr<Relay>{new Relay{std::move(socket)}};

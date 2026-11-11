@@ -210,4 +210,18 @@ net::ReadOutcome TlsStream::read_some(std::string &buffer) {
   }
 }
 
+std::unique_ptr<net::ByteStream> connect_stream(const net::Url &url, const TlsTrust &trust,
+                                                std::string &error) {
+  if (url.secure()) {
+    return TlsStream::connect(url.host, url.port, trust, error);
+  }
+  const std::optional<net::Endpoint> at =
+      net::resolve_endpoint(url.host + ":" + std::to_string(url.port));
+  if (!at) {
+    error = "cannot resolve " + url.host;
+    return nullptr;
+  }
+  return net::TcpStream::connect(*at, error);
+}
+
 } // namespace lucent::p2p

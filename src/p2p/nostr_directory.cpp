@@ -10,6 +10,7 @@
 #include <chrono>
 #include <functional>
 #include <map>
+#include <stdexcept>
 #include <thread>
 #include <utility>
 
@@ -19,21 +20,11 @@ namespace {
 // A withdrawn lobby is replaced by an empty one that lapses after this.
 constexpr std::int64_t kWithdrawnSeconds = 60;
 constexpr int kMaxListedLobbies = 200;
-// A lobby claiming more seats than this is not one.
-constexpr std::int64_t kMaxLobbyCapacity = 1024;
 
 std::int64_t now_seconds() {
   return std::chrono::duration_cast<std::chrono::seconds>(
              std::chrono::system_clock::now().time_since_epoch())
       .count();
-}
-
-std::string content_of(const Lobby &lobby) {
-  return "{\"title\":" + text::json_quote(lobby.title) +
-         ",\"invite\":" + text::json_quote(lobby.invite) +
-         ",\"players\":" + std::to_string(lobby.players) +
-         ",\"capacity\":" + std::to_string(lobby.capacity) +
-         ",\"version\":" + text::json_quote(lobby.version) + "}";
 }
 
 std::optional<std::int64_t> integer_of(std::string_view digits) {
@@ -55,33 +46,12 @@ std::optional<Lobby> lobby_of(const nostr::Event &event, std::int64_t now) {
   }
   std::string error;
   const std::optional<json::Value> content = json::parse(event.content, error);
-  if (!content) {
+  std::optional<Lobby> lobby = content ? lobby_of_json(*content) : std::nullopt;
+  if (!lobby || lobby->id != *id) {
     return std::nullopt;
   }
-  const json::Value *title = content->find("title");
-  const json::Value *invite = content->find("invite");
-  const json::Value *version = content->find("version");
-  const json::Value *players_value = content->find("players");
-  const json::Value *capacity_value = content->find("capacity");
-  const std::optional<std::int64_t> players =
-      players_value != nullptr ? players_value->integer() : std::nullopt;
-  const std::optional<std::int64_t> capacity =
-      capacity_value != nullptr ? capacity_value->integer() : std::nullopt;
-  if (title == nullptr || title->string() == nullptr || invite == nullptr ||
-      invite->string() == nullptr || invite->string()->empty() || version == nullptr ||
-      version->string() == nullptr || !players || !capacity || *players < 0 ||
-      *capacity < *players || *capacity > kMaxLobbyCapacity) {
-    return std::nullopt;
-  }
-  Lobby lobby;
-  lobby.id = std::string{*id};
-  lobby.title = *title->string();
-  lobby.invite = *invite->string();
-  lobby.players = static_cast<int>(*players);
-  lobby.capacity = static_cast<int>(*capacity);
-  lobby.version = *version->string();
-  lobby.host = event.pubkey;
-  lobby.expires_at = *expires;
+  lobby->host = event.pubkey;
+  lobby->expires_at = *expires;
   return lobby;
 }
 
@@ -124,9 +94,13 @@ std::string failures(const std::vector<std::string> &relays,
 
 } // namespace
 
-NostrDirectory::NostrDirectory(std::string game, std::vector<std::string> relays, TlsTrust trust)
-    : topic_{"lucent-" + std::move(game)}, relays_{std::move(relays)}, trust_{std::move(trust)},
+NostrDirectory::NostrDirectory(const std::string &game, std::vector<std::string> relays,
+                               TlsTrust trust)
+    : topic_{"lucent-" + game}, relays_{std::move(relays)}, trust_{std::move(trust)},
       secret_{crypto::random_bytes(crypto::kKeyBytes)} {
+  if (!valid_game_name(game)) {
+    throw std::invalid_argument{"not a directory game name: " + game};
+  }
 }
 
 NostrDirectory::~NostrDirectory() {
@@ -139,7 +113,7 @@ bool NostrDirectory::send(const Lobby &lobby, std::int64_t lifetime, std::string
   event.created_at = now;
   event.kind = kNostrLobbyKind;
   event.tags = {{"d", lobby.id}, {"t", topic_}, {"expiration", std::to_string(now + lifetime)}};
-  event.content = content_of(lobby);
+  event.content = lobby_json(lobby, false);
   if (!nostr::sign(event, secret_)) {
     error = "the lobby key does not sign";
     return false;
@@ -164,8 +138,8 @@ bool NostrDirectory::send(const Lobby &lobby, std::int64_t lifetime, std::string
 }
 
 bool NostrDirectory::publish(const Lobby &lobby, std::string &error) {
-  if (lobby.invite.empty()) {
-    error = "a lobby needs an invite";
+  if (!publishable(lobby)) {
+    error = "a lobby needs an id and an invite, fields within their limits and seats that add up";
     return false;
   }
   return send(lobby, kNostrLobbySeconds, error);

@@ -35,6 +35,7 @@ add_library(lucent STATIC
   src/thread_work_counter.cpp
   src/touch.cpp
   src/udp_socket.cpp
+  src/url.cpp
   src/version.cpp
   src/work_clock.cpp
 )
@@ -95,11 +96,10 @@ if(LUCENT_BUILD_ONLINE)
   find_package(OpenSSL 3 REQUIRED COMPONENTS Crypto SSL)
   add_library(lucent_online STATIC
     src/p2p/connector.cpp src/p2p/crypto.cpp src/p2p/descriptor.cpp src/p2p/direct.cpp
-    src/p2p/handshake.cpp src/p2p/nat_pmp.cpp src/p2p/nostr.cpp src/p2p/nostr_directory.cpp
-    src/p2p/packet_seal.cpp src/p2p/path.cpp
-    src/p2p/path_bridge.cpp
-    src/p2p/port_lease.cpp src/p2p/reliable_link.cpp src/p2p/schnorr.cpp src/p2p/stun.cpp
-    src/p2p/tls_stream.cpp
+    src/p2p/directory.cpp src/p2p/handshake.cpp src/p2p/http_directory.cpp
+    src/p2p/lobby_board.cpp src/p2p/nat_pmp.cpp src/p2p/nostr.cpp src/p2p/nostr_directory.cpp
+    src/p2p/packet_seal.cpp src/p2p/path.cpp src/p2p/path_bridge.cpp src/p2p/port_lease.cpp
+    src/p2p/reliable_link.cpp src/p2p/schnorr.cpp src/p2p/stun.cpp src/p2p/tls_stream.cpp
     src/p2p/upnp_igd.cpp)
   add_library(lucent::online ALIAS lucent_online)
   target_link_libraries(lucent_online PUBLIC lucent OpenSSL::SSL OpenSSL::Crypto)
@@ -126,6 +126,11 @@ if(LUCENT_BUILD_ONLINE)
     target_compile_options(lucent_online PRIVATE -Wall -Wextra -Wpedantic)
   endif()
   set_target_properties(lucent_online PROPERTIES POSITION_INDEPENDENT_CODE ON EXPORT_NAME online)
+  # The self-hosted lobby list, for a server someone rents; POSIX signals end it.
+  if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR AND UNIX AND NOT ANDROID)
+    add_executable(lucent_lobby_server src/p2p/lobby_server_main.cpp)
+    target_link_libraries(lucent_lobby_server PRIVATE lucent::online)
+  endif()
 endif()
 
 option(LUCENT_BUILD_ZEROTIER "Build lucent's embedded ZeroTier backend (libzt), which a game opts into"
@@ -239,6 +244,10 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     target_link_libraries(lucent_touch_tests PRIVATE lucent)
     add_test(NAME lucent_touch_tests COMMAND lucent_touch_tests)
 
+    add_executable(lucent_url_tests tests/test_url.cpp)
+    target_link_libraries(lucent_url_tests PRIVATE lucent)
+    add_test(NAME lucent_url_tests COMMAND lucent_url_tests)
+
     add_executable(lucent_json_tests tests/test_json.cpp)
     target_link_libraries(lucent_json_tests PRIVATE lucent)
     add_test(NAME lucent_json_tests COMMAND lucent_json_tests)
@@ -286,7 +295,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 
     if(TARGET lucent_online)
       foreach(_lucent_p2p_test crypto descriptor handshake reliable_link stun direct connector
-        port_lease path_bridge schnorr tls_stream nostr nostr_directory)
+        port_lease path_bridge schnorr tls_stream nostr nostr_directory lobby_board)
         add_executable(lucent_p2p_${_lucent_p2p_test}_tests tests/p2p/test_${_lucent_p2p_test}.cpp)
         target_include_directories(lucent_p2p_${_lucent_p2p_test}_tests PRIVATE src tests)
         target_link_libraries(lucent_p2p_${_lucent_p2p_test}_tests PRIVATE lucent::online)
