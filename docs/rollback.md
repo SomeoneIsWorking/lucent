@@ -58,8 +58,13 @@ slots. A message that does not read is ignored.
 `ctest -R rollback`: two peers on a mesh and four on a host-relayed star, over links with 3 ticks
 of delay, ±1 jitter and 20% loss, match lockstep for the last 100 of 600 frames and resimulate; a
 game that drifts is reported within 40 frames of the drift; a peer that hears nothing runs
-`max_rollback + 1` frames and stalls. In a game, two processes over `tools.nat_lab` show the same
-`final_hash` on both sides and no `Desynced`.
+`max_rollback + 1` frames and stalls. In a game, two processes in their own network namespaces show
+the same `final_hash` on both sides up to `finalized_frame()` and no `Desynced`, with
+`resimulated_frames()` above zero: give the players different scripted inputs and the link delay
+and loss (`tc qdisc add dev <veth> root netem delay 60ms 20ms loss 10%`), or no rewind happens and
+only determinism is shown. Each instance needs its own install and save directory: a file both
+write (LF2 decrypts its data through one temporary file) races and looks like a desync. A hidden
+window never has focus, so SDL needs `SDL_HINT_JOYSTICK_ALLOW_BACKGROUND_EVENTS` for scripted pads.
 
 Design reference: GGPO (MIT, github.com/pond3r/ggpo), read for its sync and input-queue design;
 no code is taken.

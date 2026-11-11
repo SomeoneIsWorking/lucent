@@ -90,9 +90,9 @@ if cheap. The runtime supplies save state, load state, set the pads, advance one
    lobby screen consuming it is next.
 4. Self-hosted lobby. **Shown in Lucent** (`LobbyBoard`, `HttpDirectory`, `lucent_lobby_server`, live
    on a LAN address); the user rents a server when the relays are not enough.
-5. Rollback engine with psxport (Crash Bash 4-player), then LF2. **Shown in Lucent**
-   (`lucent::rollback::Session` against a test game over lossy, jittery links: docs/rollback.md);
-   psxport consuming it is next.
+5. Rollback engine with psxport (Crash Bash 4-player), then LF2. **Shown in LF2** (two players
+   rewinding over netem and over ZeroTier with equal final hashes, lf2 816f7ec); psxport's four
+   players are next.
 6. X-Men Legends II: game's own LAN netcode over the transport; broadcast discovery becomes unicast to
    friend codes and directory entries. `VirtualLan` shows each friend at one 10.254.0.x address.
 
