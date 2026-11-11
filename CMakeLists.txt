@@ -236,7 +236,8 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     endif()
 
     if(TARGET lucent_online)
-      foreach(_lucent_p2p_test crypto descriptor handshake reliable_link stun direct connector)
+      foreach(_lucent_p2p_test crypto descriptor handshake reliable_link stun direct connector
+        port_lease)
         add_executable(lucent_p2p_${_lucent_p2p_test}_tests tests/p2p/test_${_lucent_p2p_test}.cpp)
         target_link_libraries(lucent_p2p_${_lucent_p2p_test}_tests PRIVATE lucent::online)
         add_test(NAME lucent_p2p_${_lucent_p2p_test}_tests

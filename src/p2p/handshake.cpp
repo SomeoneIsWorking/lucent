@@ -3,6 +3,8 @@
 #include <algorithm>
 #include <utility>
 
+#include "lucent/p2p/stun.h"
+
 namespace lucent::p2p {
 namespace {
 
@@ -119,13 +121,13 @@ void Handshake::step(std::chrono::milliseconds wait) {
   }
 }
 
-std::string Handshake::take_other() {
-  return std::exchange(other_, {});
-}
-
 void Handshake::take(std::string_view datagram, const PathAddress &from) {
   if (datagram.empty()) {
     ++dropped_;
+    return;
+  }
+  // A late STUN answer on the shared socket is neither a forgery nor ours.
+  if (is_stun(datagram)) {
     return;
   }
   const auto kind = static_cast<std::uint8_t>(datagram.front());
@@ -135,11 +137,8 @@ void Handshake::take(std::string_view datagram, const PathAddress &from) {
     take_welcome(datagram, from);
   } else if (kind == kKnockKind && role_ == Role::Friend) {
     take_knock(datagram, from);
-  } else if (kind == kSealVersion && role_ == Role::Host) {
+  } else if (role_ == Role::Host) {
     take_sealed(datagram, from);
-  } else if (kind != kHelloKind && kind != kWelcomeKind && kind != kKnockKind &&
-             kind != kSealVersion) {
-    other_ = datagram;
   } else {
     ++dropped_;
   }

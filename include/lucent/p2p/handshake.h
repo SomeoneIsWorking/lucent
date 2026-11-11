@@ -85,8 +85,6 @@ public:
   std::uint64_t dropped() const noexcept {
     return dropped_;
   }
-  // The last datagram that was not the handshake's or sealed (a STUN answer), once.
-  std::string take_other();
 
 private:
   struct Caller {
@@ -119,7 +117,6 @@ private:
   bool near_ = false;
   std::uint64_t dropped_ = 0;
   std::vector<char> buffer_;
-  std::string other_;
 };
 
 // The purpose a handshake's own first sealed datagram uses: the friend's link key.

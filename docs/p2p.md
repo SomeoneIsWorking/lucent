@@ -51,15 +51,18 @@ addresses. ZeroTier (id 1): 40-bit node id, port.
 - Nothing but a STUN answer is read before it opens under a key from the code's secret, and a STUN
   answer must match its transaction id and come from the server asked.
 - The `label` separates one application's keys from another's; a code for one never opens another.
-- No code, key or address is logged.
+- No code, key, public or peer address is logged; `gather_direct` logs this machine's local
+  addresses in the order it offers them, so a player can see which network leads.
+- A late STUN answer is ignored, and anything else that is not the handshake's counts as dropped.
 - Every wait has a limit and the connector stops on destruction.
 - A router mapping is asked for 120 s and renewed at half its lease; more than 600 s, or a permanent
   one, is refused.
 
 ## Checking it
 
-`ctest --test-dir build/agent -R p2p` runs the owners through real loopback sockets: forged, wrong
--secret and other-label handshakes are dropped, a reliable link carries a 150 kB message in order and
+`ctest --test-dir build/agent -R p2p` runs the owners through real loopback sockets: forged,
+replayed, wrong-secret and other-label handshakes are dropped, NAT-PMP and UPnP stand-ins grant,
+renew and take down a lease, a reliable link carries a 150 kB message in order and
 breaks on a size past its cap, a fake STUN server answers `gather_direct`, and two connectors meet
 from a pasted invite. Across NATs it is proved in openSU's `tools.nat_lab` (rootless namespaces,
 `nft` NATs, a STUN server and a NAT-PMP/UPnP gateway).

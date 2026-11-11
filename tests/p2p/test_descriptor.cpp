@@ -4,6 +4,7 @@
 #include <cctype>
 #include <cstdio>
 #include <string>
+#include <vector>
 
 namespace {
 
@@ -56,12 +57,53 @@ void reply_is_bound_to_its_invite() {
          problem == CodeProblem::OtherInvite);
 }
 
+Descriptor direct_with(std::vector<std::uint32_t> locals) {
+  Descriptor descriptor;
+  descriptor.direct =
+      DirectReach{40123, {{0x7F000001u, 4000}, {0x7F000002u, 5000}}, std::move(locals), true};
+  return descriptor;
+}
+
+void a_direct_invite_is_short_enough_to_paste() {
+  const Invite invite{crypto::random_bytes(kSecretBytes), direct_with({0xC0A80101u})};
+  const std::string code = write_invite(invite, kPrefixes);
+  CodeProblem problem{};
+  const auto read = read_invite(code, kPrefixes, problem);
+  assert(read && read->secret == invite.secret && read->descriptor == invite.descriptor);
+  assert(code.size() < 80);
+}
+
+void more_refusals_are_named() {
+  const Invite invite{crypto::random_bytes(kSecretBytes), direct_with({0xC0A80101u})};
+  const std::string code = write_invite(invite, kPrefixes);
+  CodeProblem problem{};
+  assert(!read_invite("hello there", kPrefixes, problem) && problem == CodeProblem::Unknown);
+  std::string changed = code;
+  changed[20] = changed[20] == 'A' ? 'B' : 'A';
+  assert(!read_invite(changed, kPrefixes, problem) && problem == CodeProblem::Damaged);
+  assert(!read_invite(code.substr(0, code.size() - 3), kPrefixes, problem) &&
+         problem == CodeProblem::Damaged);
+  assert(!read_reply(code, invite.secret, kPrefixes, problem) && problem == CodeProblem::WrongKind);
+}
+
+void a_code_holds_what_fits() {
+  const Invite invite{crypto::random_bytes(kSecretBytes),
+                      direct_with(std::vector<std::uint32_t>(kMostAddresses + 2, 0xC0A80101u))};
+  CodeProblem problem{};
+  const auto read = read_invite(write_invite(invite, kPrefixes), kPrefixes, problem);
+  assert(read && read->descriptor.direct &&
+         read->descriptor.direct->locals.size() == kMostAddresses);
+}
+
 } // namespace
 
 int main() {
   invite_round_trips_through_a_chat_app();
   invite_problems_are_named();
   reply_is_bound_to_its_invite();
+  a_direct_invite_is_short_enough_to_paste();
+  more_refusals_are_named();
+  a_code_holds_what_fits();
   std::puts("lucent p2p descriptor tests passed");
   return 0;
 }

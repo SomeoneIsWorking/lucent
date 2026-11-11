@@ -2,7 +2,11 @@
 
 #include <cassert>
 #include <cstdio>
+#include <optional>
 #include <stop_token>
+#include <string>
+#include <string_view>
+#include <vector>
 
 #include "stun_responder.h"
 
@@ -47,6 +51,63 @@ void locals_rank_overlays_first_and_drop_what_reaches_no_one() {
   assert(locals == expected);
 }
 
+std::uint32_t ip(std::string_view dotted) {
+  const std::optional<std::uint32_t> address = lucent::net::parse_ipv4(dotted);
+  assert(address);
+  return *address;
+}
+
+Ipv4Interface named(std::string_view address, std::string_view mask, std::string name) {
+  return masked(interface(std::move(name), ip(address)), ip(mask));
+}
+
+void zerotier_comes_first_then_the_gateways_lan() {
+  std::vector<Ipv4Interface> found{
+      named("192.168.1.107", "255.255.255.0", "enp8s0"),
+      without_carrier(named("172.17.0.1", "255.255.0.0", "docker0")),
+      without_carrier(named("192.168.122.1", "255.255.255.0", "virbr0")),
+      named("10.88.0.1", "255.255.0.0", "podman0"),
+      named("169.254.3.4", "255.255.0.0", "enp9s0"),
+      named("10.147.17.5", "255.255.255.0", "zt3jn4abcd"),
+      named("127.0.0.1", "255.0.0.0", "lo"),
+  };
+  found.back().loopback = true;
+  const std::vector<std::uint32_t> expected{ip("10.147.17.5"), ip("192.168.1.107"),
+                                            ip("10.88.0.1")};
+  assert(reachable_locals(found, ip("192.168.1.1")) == expected);
+}
+
+void tailscale_and_zerotier_share_the_front_in_order() {
+  const std::vector<Ipv4Interface> found{
+      named("10.0.1.2", "255.255.255.0", "eth0"),
+      named("100.101.102.103", "255.192.0.0", "tailscale0"),
+      named("10.147.17.5", "255.255.255.0", "zt0"),
+  };
+  const std::vector<std::uint32_t> expected{ip("100.101.102.103"), ip("10.147.17.5"),
+                                            ip("10.0.1.2")};
+  assert(reachable_locals(found, ip("10.0.1.1")) == expected);
+}
+
+void zerotier_is_known_by_its_driver_and_names() {
+  const Ipv4Interface lan = named("10.0.1.2", "255.255.255.0", "eth0");
+  const std::uint32_t gateway = ip("10.0.1.1");
+  const std::uint32_t overlay = ip("10.147.17.5");
+  // Windows' adapter, renamed, by its description.
+  Ipv4Interface windows = named("10.147.17.5", "255.255.255.0", "Ethernet 3");
+  windows.description = "ZeroTier Virtual Port";
+  assert(reachable_locals({lan, windows}, gateway).front() == overlay);
+  windows.description = "ZeroTier One Virtual Port #2";
+  assert(reachable_locals({lan, windows}, gateway).front() == overlay);
+  // macOS' feth pair.
+  assert(
+      reachable_locals({lan, named("10.147.17.5", "255.255.255.0", "feth2913")}, gateway).front() ==
+      overlay);
+  // A renamed Linux interface is ranked as any other, and still kept.
+  const std::vector<std::uint32_t> renamed =
+      reachable_locals({lan, named("10.147.17.5", "255.255.255.0", "corpnet")}, gateway);
+  assert(renamed == (std::vector<std::uint32_t>{ip("10.0.1.2"), overlay}));
+}
+
 void gathering_takes_the_stun_answer_and_the_locals() {
   test::StunResponder server;
   std::string error;
@@ -69,6 +130,9 @@ void gathering_takes_the_stun_answer_and_the_locals() {
 
 int main() {
   locals_rank_overlays_first_and_drop_what_reaches_no_one();
+  zerotier_comes_first_then_the_gateways_lan();
+  tailscale_and_zerotier_share_the_front_in_order();
+  zerotier_is_known_by_its_driver_and_names();
   gathering_takes_the_stun_answer_and_the_locals();
   std::puts("lucent p2p direct tests passed");
   return 0;

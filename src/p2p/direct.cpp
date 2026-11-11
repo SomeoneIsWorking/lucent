@@ -30,7 +30,7 @@ bool tailscale(std::uint32_t address) {
 
 bool zerotier(const net::Ipv4Interface &interface) {
   return interface.name.starts_with("zt") || interface.name.starts_with("feth") ||
-         interface.description.starts_with("ZeroTier Virtual Port");
+         interface.description.find("ZeroTier") != std::string::npos;
 }
 
 bool on_link_with(const net::Ipv4Interface &interface, std::uint32_t address) {
@@ -194,10 +194,14 @@ DirectGathered gather_direct(const std::stop_token &stop, const net::UdpSocket &
     }
   }
   gathered.reach.varying = varying && !gathered.lease;
+  std::string named;
+  for (const std::uint32_t address : gathered.reach.locals) {
+    named += (named.empty() ? "" : " ") + net::format_ipv4(address);
+  }
   lucent::log(Level::Info, "p2p",
               std::to_string(gathered.reach.publics.size()) + " public addresses, " +
-                  std::to_string(gathered.reach.locals.size()) + " local, mapping " +
-                  (varying ? "varies by destination" : "steady"));
+                  std::to_string(gathered.reach.locals.size()) + " local (" + named +
+                  "), mapping " + (varying ? "varies by destination" : "steady"));
   return gathered;
 }
 
