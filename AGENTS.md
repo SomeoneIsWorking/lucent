@@ -13,6 +13,8 @@ is dependency-free; optional `lucent::zip` adds zlib-backed archive extraction a
 - `http` owns bounded loopback transport, request parsing, response framing, and server lifecycle.
   Consumers own routes and domain behavior; game input, renderer probes, and application state do
   not belong in Lucent.
+- `network_interfaces` owns host IPv4 interface enumeration (address, netmask, broadcast,
+  flags) and the rule for which broadcast addresses reach every LAN. Consumers own sockets.
 - `touch` owns platform-neutral contact-to-zone capture, multi-touch routing, and cancellation.
   Android/SDL3 shells own event acquisition, safe-area layout, and conversion from zone IDs to game
   actions; do not put title-specific controls in Lucent.

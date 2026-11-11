@@ -24,6 +24,7 @@ add_library(lucent STATIC
   src/http_client.cpp
   src/log.cpp
   src/log_c.cpp
+  src/network_interfaces.cpp
   src/platform.cpp
   src/rotation.cpp
   src/text.cpp
@@ -79,7 +80,7 @@ endif()
 find_package(Threads REQUIRED)
 target_link_libraries(lucent PUBLIC Threads::Threads)
 if(WIN32)
-  target_link_libraries(lucent PUBLIC ws2_32)
+  target_link_libraries(lucent PUBLIC ws2_32 iphlpapi)
 endif()
 if(ANDROID)
   # liblog: the default sink writes through __android_log_write, because an app's
@@ -151,6 +152,10 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     target_link_libraries(lucent_http_client_tests PRIVATE lucent Threads::Threads)
     target_include_directories(lucent_http_client_tests PRIVATE src)
     add_test(NAME lucent_http_client_tests COMMAND lucent_http_client_tests)
+
+    add_executable(lucent_network_interfaces_tests tests/test_network_interfaces.cpp)
+    target_link_libraries(lucent_network_interfaces_tests PRIVATE lucent)
+    add_test(NAME lucent_network_interfaces_tests COMMAND lucent_network_interfaces_tests)
 
     add_executable(lucent_touch_tests tests/test_touch.cpp)
     target_link_libraries(lucent_touch_tests PRIVATE lucent)
