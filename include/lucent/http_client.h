@@ -1,13 +1,16 @@
 // lucent/http_client.h — the client side of plain HTTP: one request to a loopback or LAN host, and
-// a loopback WebSocket for local debugging protocols such as Chrome DevTools.
+// a WebSocket over any byte stream: loopback for local debugging protocols such as Chrome
+// DevTools, TLS to a relay through `lucent::online`.
 #pragma once
 
 #include <cstddef>
 #include <cstdint>
+#include <memory>
 #include <optional>
 #include <string>
 #include <string_view>
 
+#include "lucent/byte_stream.h"
 #include "lucent/ipv4.h"
 
 namespace lucent::http {
@@ -47,7 +50,7 @@ bool post_loopback(std::uint16_t port, std::string_view target, std::string_view
 // The Sec-WebSocket-Accept value a server answers `key` with (RFC 6455 section 4.2.2).
 std::string websocket_accept(std::string_view key);
 
-// One client WebSocket to 127.0.0.1. Text messages only; pings are answered while receiving.
+// One client WebSocket. Text messages only; pings are answered while receiving.
 class WebSocketClient {
 public:
   static constexpr std::size_t kMaxMessageBytes = std::size_t{16} * 1024 * 1024;
@@ -60,8 +63,11 @@ public:
   WebSocketClient(WebSocketClient &&) = delete;
   WebSocketClient &operator=(WebSocketClient &&) = delete;
 
-  // Opens the socket and completes the upgrade handshake for `path`.
+  // Opens a socket to 127.0.0.1:`port` and completes the upgrade handshake for `path`.
   bool connect_loopback(std::uint16_t port, std::string_view path, std::string &error);
+  // Completes the upgrade handshake for `path` over `stream`, naming `host` ("name:port").
+  bool connect(std::unique_ptr<net::ByteStream> stream, std::string_view host,
+               std::string_view path, std::string &error);
   bool send_text(std::string_view text, std::string &error);
   // Waits for the next whole text message. Nothing on close, timeout, or a protocol error, after
   // which the client is closed and `error` says which.
@@ -74,7 +80,7 @@ private:
   bool read_exact(char *bytes, std::size_t size, std::string &error);
   bool fail(std::string &error, std::string reason);
 
-  std::uintptr_t socket_ = ~std::uintptr_t{0};
+  std::unique_ptr<net::ByteStream> stream_;
   // Bytes read past the handshake's header block.
   std::string pending_;
 };

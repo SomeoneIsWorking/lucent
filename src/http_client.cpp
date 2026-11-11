@@ -1,6 +1,6 @@
 #include "lucent/http_client.h"
 
-#include "http_socket.h"
+#include "lucent/byte_stream.h"
 
 #include <array>
 #include <bit>
@@ -15,7 +15,7 @@
 namespace lucent::http {
 namespace {
 
-using detail::Socket;
+using net::ReadOutcome;
 
 constexpr std::string_view kWebSocketGuid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 constexpr std::size_t kMaxHeaderBytes = std::size_t{16} * 1024;
@@ -118,8 +118,6 @@ std::string lowercase(std::string_view text) {
   return out;
 }
 
-enum class ReadOutcome : std::uint8_t { Data, Closed, TimedOut, Failed };
-
 std::string describe(ReadOutcome outcome, std::string_view closed) {
   switch (outcome) {
   case ReadOutcome::Closed:
@@ -158,117 +156,34 @@ std::optional<std::string> header_value(const Head &head, std::string_view name)
   return head.headers.substr(begin, end - begin);
 }
 
-class Connection {
-public:
-  ~Connection() {
-    detail::close_socket(socket_);
-  }
-  Connection() = default;
-  Connection(const Connection &) = delete;
-  Connection &operator=(const Connection &) = delete;
-  Connection(Connection &&) = delete;
-  Connection &operator=(Connection &&) = delete;
-
-  bool open(const net::Endpoint &server, std::string &error) {
-    if (!detail::initialize_socket_runtime()) {
-      error = "socket runtime unavailable";
+// Reads the status line and headers; bytes past them are left in `head.rest`.
+bool read_head(net::ByteStream &stream, Head &head, std::string &error) {
+  std::string buffer;
+  std::size_t end = std::string::npos;
+  while ((end = buffer.find("\r\n\r\n")) == std::string::npos) {
+    if (buffer.size() > kMaxHeaderBytes) {
+      error = "response headers too large";
       return false;
     }
-    socket_ = detail::create_tcp_socket();
-    if (detail::is_invalid_socket(socket_)) {
-      error = "cannot create a socket";
+    if (const ReadOutcome outcome = stream.read_some(buffer); outcome != ReadOutcome::Data) {
+      error = describe(outcome, "connection closed before the response headers");
       return false;
     }
-    detail::set_close_on_exec(socket_);
-    detail::set_socket_timeouts(socket_);
-    sockaddr_in address{};
-    address.sin_family = AF_INET;
-    address.sin_port = htons(server.port);
-    address.sin_addr.s_addr = htonl(server.address);
-    if (::connect(detail::native_socket(socket_), reinterpret_cast<const sockaddr *>(&address),
-                  sizeof(address)) != 0) {
-      error = "cannot connect to " + net::format_ipv4(server.address) + ":" +
-              std::to_string(server.port);
-      return false;
-    }
-    return true;
   }
-
-  bool send_all(std::string_view bytes, std::string &error) const {
-    if (detail::is_invalid_socket(socket_)) {
-      error = "not connected";
-      return false;
-    }
-    while (!bytes.empty()) {
-      const std::ptrdiff_t sent = detail::send_bytes(socket_, bytes.data(), bytes.size());
-      if (sent < 0 && detail::socket_error_interrupted(detail::last_socket_error())) {
-        continue;
-      }
-      if (sent <= 0) {
-        error = "send failed";
-        return false;
-      }
-      bytes.remove_prefix(static_cast<std::size_t>(sent));
-    }
-    return true;
+  const std::size_t line_end = buffer.find("\r\n");
+  const std::string_view status_line{buffer.data(), line_end};
+  const std::size_t space = status_line.find(' ');
+  if (!status_line.starts_with("HTTP/1.") || space == std::string_view::npos ||
+      std::from_chars(status_line.data() + space + 1, status_line.data() + status_line.size(),
+                      head.status)
+              .ec != std::errc{}) {
+    error = "malformed status line";
+    return false;
   }
-
-  // Reads the status line and headers; bytes past them are left in `head.rest`.
-  bool read_head(Head &head, std::string &error) const {
-    std::string buffer;
-    std::size_t end = std::string::npos;
-    while ((end = buffer.find("\r\n\r\n")) == std::string::npos) {
-      if (buffer.size() > kMaxHeaderBytes) {
-        error = "response headers too large";
-        return false;
-      }
-      if (const ReadOutcome outcome = read_some(buffer); outcome != ReadOutcome::Data) {
-        error = describe(outcome, "connection closed before the response headers");
-        return false;
-      }
-    }
-    const std::size_t line_end = buffer.find("\r\n");
-    const std::string_view status_line{buffer.data(), line_end};
-    const std::size_t space = status_line.find(' ');
-    if (!status_line.starts_with("HTTP/1.") || space == std::string_view::npos ||
-        std::from_chars(status_line.data() + space + 1, status_line.data() + status_line.size(),
-                        head.status)
-                .ec != std::errc{}) {
-      error = "malformed status line";
-      return false;
-    }
-    head.headers = buffer.substr(line_end, end + 2 - line_end);
-    head.rest = buffer.substr(end + 4);
-    return true;
-  }
-
-  // Appends what one receive returns.
-  ReadOutcome read_some(std::string &buffer) const {
-    std::array<char, 4096> chunk{};
-    for (;;) {
-      const std::ptrdiff_t received = detail::receive_bytes(socket_, chunk.data(), chunk.size());
-      if (received > 0) {
-        buffer.append(chunk.data(), static_cast<std::size_t>(received));
-        return ReadOutcome::Data;
-      }
-      if (received == 0) {
-        return ReadOutcome::Closed;
-      }
-      const int code = detail::last_socket_error();
-      if (detail::socket_error_interrupted(code)) {
-        continue;
-      }
-      return detail::socket_error_would_block(code) ? ReadOutcome::TimedOut : ReadOutcome::Failed;
-    }
-  }
-
-  Socket release() noexcept {
-    return std::exchange(socket_, detail::kInvalidSocket);
-  }
-
-private:
-  Socket socket_ = detail::kInvalidSocket;
-};
+  head.headers = buffer.substr(line_end, end + 2 - line_end);
+  head.rest = buffer.substr(end + 4);
+  return true;
+}
 
 } // namespace
 
@@ -282,8 +197,8 @@ constexpr net::Endpoint loopback(std::uint16_t port) {
 
 bool fetch(const net::Endpoint &server, const FetchRequest &sent, FetchResult &result,
            std::string &error) {
-  Connection connection;
-  if (!connection.open(server, error)) {
+  const std::unique_ptr<net::TcpStream> connection = net::TcpStream::connect(server, error);
+  if (!connection) {
     return false;
   }
   std::string request = std::string{sent.method} + " " + std::string{sent.target} +
@@ -297,7 +212,7 @@ bool fetch(const net::Endpoint &server, const FetchRequest &sent, FetchResult &r
     request += "\r\n";
   }
   Head head;
-  if (!connection.send_all(request, error) || !connection.read_head(head, error)) {
+  if (!connection->send_all(request, error) || !read_head(*connection, head, error)) {
     return false;
   }
   if (const auto encoding = header_value(head, "Transfer-Encoding");
@@ -321,7 +236,7 @@ bool fetch(const net::Endpoint &server, const FetchRequest &sent, FetchResult &r
       error = "response body too large";
       return false;
     }
-    const ReadOutcome outcome = connection.read_some(response);
+    const ReadOutcome outcome = connection->read_some(response);
     if (outcome == ReadOutcome::Closed && !length) {
       break;
     }
@@ -358,12 +273,11 @@ WebSocketClient::~WebSocketClient() {
 }
 
 bool WebSocketClient::connected() const noexcept {
-  return !detail::is_invalid_socket(socket_);
+  return stream_ != nullptr;
 }
 
 void WebSocketClient::close() noexcept {
-  detail::close_socket(socket_);
-  socket_ = detail::kInvalidSocket;
+  stream_.reset();
   pending_.clear();
 }
 
@@ -375,11 +289,17 @@ bool WebSocketClient::fail(std::string &error, std::string reason) {
 
 bool WebSocketClient::connect_loopback(std::uint16_t port, std::string_view path,
                                        std::string &error) {
-  close();
-  Connection connection;
-  if (!connection.open(loopback(port), error)) {
+  std::unique_ptr<net::TcpStream> stream = net::TcpStream::connect(loopback(port), error);
+  if (!stream) {
+    close();
     return false;
   }
+  return connect(std::move(stream), "127.0.0.1:" + std::to_string(port), path, error);
+}
+
+bool WebSocketClient::connect(std::unique_ptr<net::ByteStream> stream, std::string_view host,
+                              std::string_view path, std::string &error) {
+  close();
   std::random_device random;
   std::array<std::uint8_t, 16> nonce{};
   for (std::uint8_t &byte : nonce) {
@@ -387,12 +307,12 @@ bool WebSocketClient::connect_loopback(std::uint16_t port, std::string_view path
   }
   const std::string key = base64(nonce.data(), nonce.size());
   const std::string request = "GET " + std::string{path} +
-                              " HTTP/1.1\r\nHost: 127.0.0.1:" + std::to_string(port) +
+                              " HTTP/1.1\r\nHost: " + std::string{host} +
                               "\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
                               "Sec-WebSocket-Key: " +
                               key + "\r\nSec-WebSocket-Version: 13\r\n\r\n";
   Head head;
-  if (!connection.send_all(request, error) || !connection.read_head(head, error)) {
+  if (!stream->send_all(request, error) || !read_head(*stream, head, error)) {
     return false;
   }
   if (head.status != 101) {
@@ -408,7 +328,7 @@ bool WebSocketClient::connect_loopback(std::uint16_t port, std::string_view path
     error = "Sec-WebSocket-Accept does not match the key";
     return false;
   }
-  socket_ = connection.release();
+  stream_ = std::move(stream);
   pending_ = std::move(head.rest);
   return true;
 }
@@ -442,16 +362,9 @@ bool WebSocketClient::send_frame(std::uint8_t opcode, std::string_view payload,
   frame.append(mask.data(), mask.size());
   frame.append(payload);
   apply_mask(std::span(frame).subspan(frame.size() - size), mask);
-  std::string_view bytes = frame;
-  while (!bytes.empty()) {
-    const std::ptrdiff_t sent = detail::send_bytes(socket_, bytes.data(), bytes.size());
-    if (sent < 0 && detail::socket_error_interrupted(detail::last_socket_error())) {
-      continue;
-    }
-    if (sent <= 0) {
-      return fail(error, "send failed");
-    }
-    bytes.remove_prefix(static_cast<std::size_t>(sent));
+  std::string reason;
+  if (!stream_->send_all(frame, reason)) {
+    return fail(error, reason);
   }
   return true;
 }
@@ -462,20 +375,9 @@ bool WebSocketClient::send_text(std::string_view text, std::string &error) {
 
 bool WebSocketClient::read_exact(char *bytes, std::size_t size, std::string &error) {
   while (pending_.size() < size) {
-    std::array<char, 4096> chunk{};
-    const std::ptrdiff_t received = detail::receive_bytes(socket_, chunk.data(), chunk.size());
-    if (received > 0) {
-      pending_.append(chunk.data(), static_cast<std::size_t>(received));
-      continue;
+    if (const ReadOutcome outcome = stream_->read_some(pending_); outcome != ReadOutcome::Data) {
+      return fail(error, describe(outcome, "connection closed"));
     }
-    if (received == 0) {
-      return fail(error, "connection closed");
-    }
-    const int code = detail::last_socket_error();
-    if (detail::socket_error_interrupted(code)) {
-      continue;
-    }
-    return fail(error, detail::socket_error_would_block(code) ? "timed out" : "receive failed");
   }
   std::memcpy(bytes, pending_.data(), size);
   pending_.erase(0, size);

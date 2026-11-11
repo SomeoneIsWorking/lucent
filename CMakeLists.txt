@@ -22,6 +22,7 @@ add_library(lucent STATIC
   src/count_histogram.cpp
   src/cvar.cpp
   src/http.cpp
+  src/byte_stream.cpp
   src/http_client.cpp
   src/ipv4.cpp
   src/log.cpp
