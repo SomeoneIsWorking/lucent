@@ -1,5 +1,7 @@
 #include "file_store_directory.h"
 
+#include "lucent/text.h"
+
 #include <fcntl.h>
 #include <sys/random.h>
 #include <sys/stat.h>
@@ -40,7 +42,7 @@ std::string system_error(std::string_view operation) {
 }
 
 std::string random_name(std::string &error) {
-  std::array<unsigned char, 16> random{};
+  std::array<std::uint8_t, 16> random{};
   std::size_t filled = 0;
   while (filled != random.size()) {
     const auto count = getrandom(random.data() + filled, random.size() - filled, 0);
@@ -54,14 +56,7 @@ std::string random_name(std::string &error) {
     }
     filled += static_cast<std::size_t>(count);
   }
-  constexpr char hex[] = "0123456789abcdef";
-  std::string result;
-  result.reserve(random.size() * 2);
-  for (const auto value : random) {
-    result.push_back(hex[value >> 4U]);
-    result.push_back(hex[value & 15U]);
-  }
-  return result;
+  return text::hex(random);
 }
 } // namespace
 

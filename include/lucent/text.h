@@ -2,8 +2,12 @@
 
 #include <charconv>
 #include <cstddef>
+#include <cstdint>
+#include <optional>
+#include <span>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace lucent::text {
 namespace detail {
@@ -46,8 +50,14 @@ std::string_view trim(std::string_view value) noexcept;
 std::from_chars_result from_chars_real(const char *first, const char *last, double &value);
 std::from_chars_result from_chars_real(const char *first, const char *last, float &value);
 
-// `value` as a JSON string literal, quotes included; control bytes are escaped.
+// `value` as a JSON string literal, quotes included, escaped as JSON.stringify escapes it (the
+// form a Nostr event id hashes).
 std::string json_quote(std::string_view value);
+
+// `bytes` as lowercase hex, two digits each.
+std::string hex(std::span<const std::uint8_t> bytes);
+// The bytes `digits` spell, either case; nothing for an odd length or a non-hex digit.
+std::optional<std::vector<std::uint8_t>> from_hex(std::string_view digits);
 
 // "1 game", "2 games": the count and its English noun, `many` unless the count is one.
 std::string counted(std::size_t count, std::string_view one, std::string_view many);

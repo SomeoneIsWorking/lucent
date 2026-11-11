@@ -54,6 +54,12 @@ int main() {
       std::cerr << "from_chars_real accepted a word\n";
       ++failures;
     }
+    const std::vector<std::uint8_t> bytes{0x00, 0x7F, 0xA5, 0xFF};
+    if (lucent::text::hex(bytes) != "007fa5ff" || lucent::text::from_hex("007FA5ff") != bytes ||
+        lucent::text::from_hex("abc") || lucent::text::from_hex("zz")) {
+      std::cerr << "hex and from_hex disagree with the bytes\n";
+      ++failures;
+    }
     return failures == 0 ? 0 : 1;
   });
 }

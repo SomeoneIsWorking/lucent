@@ -1,12 +1,12 @@
 #include <lucent/content.h>
 
+#include "lucent/text.h"
+
 #include <algorithm>
 #include <array>
 #include <vector>
 #include <bit>
 #include <fstream>
-#include <iomanip>
-#include <sstream>
 
 namespace lucent::content {
 namespace {
@@ -248,15 +248,6 @@ std::optional<decltype(State{}.finish())> hash_file(const std::filesystem::path 
   return state.finish();
 }
 
-std::string hex_of(std::span<const std::uint8_t> digest) {
-  std::ostringstream output;
-  output << std::hex << std::setfill('0');
-  for (std::uint8_t byte : digest) {
-    output << std::setw(2) << static_cast<unsigned>(byte);
-  }
-  return output.str();
-}
-
 } // namespace
 
 Sha256 sha256(std::span<const std::byte> bytes) {
@@ -270,7 +261,7 @@ std::optional<Sha256> sha256_file(const std::filesystem::path &path, std::string
 }
 
 std::string sha256_hex(const Sha256 &digest) {
-  return hex_of(digest);
+  return text::hex(digest);
 }
 
 Sha512 sha512(std::span<const std::byte> bytes) {
@@ -284,7 +275,7 @@ std::optional<Sha512> sha512_file(const std::filesystem::path &path, std::string
 }
 
 std::string sha512_hex(const Sha512 &digest) {
-  return hex_of(digest);
+  return text::hex(digest);
 }
 
 } // namespace lucent::content
