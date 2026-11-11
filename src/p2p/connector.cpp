@@ -197,7 +197,8 @@ bool Connector::find(const std::stop_token &stop, std::unique_ptr<UdpPath> &path
     if (zerotier_path) {
       invite_.descriptor.zerotier = zerotier_reach;
     }
-    offer(write_invite(invite_, config_.prefixes), gathered.reach.varying, Step::Inviting);
+    offer(write_invite(invite_, config_.prefixes),
+          gathered.reach.varying && !invite_.descriptor.zerotier, Step::Inviting);
   } else if (invite_.descriptor.direct || zerotier) {
     if (invite_.descriptor.direct) {
       handshake->aim(path_addresses(*invite_.descriptor.direct));

@@ -93,7 +93,8 @@ public:
     Failure failure = Failure::None;
     // The code to send: the invite, or the reply.
     std::string code;
-    // This side's NAT varies its mapping, so a strict NAT on the other side cannot reach it.
+    // A strict NAT on the other side cannot reach this one: its NAT varies its mapping and the
+    // code names no ZeroTier node.
     bool closed = false;
   };
 
