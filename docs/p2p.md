@@ -84,7 +84,7 @@ of a token only that host's directory holds, so nobody else replaces or withdraw
 
 ## ZeroTier
 
-libzt (fork `SomeoneIsWorking/libzt` at `997999d`, ZeroTierOne from `SomeoneIsWorking/ZeroTierOne`
+libzt (fork `SomeoneIsWorking/libzt` at `6e74b65`, ZeroTierOne from `SomeoneIsWorking/ZeroTierOne`
 branch `lucent` at `b5ef81a3`) is installed into a prefix outside the repo and found as
 `libzt::zt`; the configure error names the commands. One node per process: libzt refuses a second,
 and `zts_node_free` would end it for the process, so the node's destructor only stops it. Each
@@ -94,6 +94,11 @@ as soon as it is online. The application starts the node when its online menu op
 pointer: on the lab, a node is on its network 5 to 15 s after starting, and a friend whose node is
 already there connects about 2 s after pasting the code.
 
+- libzt binds no interface whose name starts with `lo`, `zt`, `tun` or `tap` (also `feth` and
+  `utun` on macOS), so a node on a machine with only such interfaces (slirp4netns' `tap0`) reaches
+  nobody. Tests give their namespace a dummy interface of another name.
+- The static `libzt::zt` gives its users `ZTS_STATIC`, so on Windows they call it directly instead
+  of through `dllimport`.
 - An ad-hoc network (`ff` + start port + end port) has no controller: it carries IPv6 and only UDP
   and TCP to its port range, and each member's address is the 6PLANE one from network and node id.
   It is open to anyone who picks the same port, so the handshake's secret is what keeps it ours.
