@@ -17,8 +17,8 @@ void host_lists_loopback_without_a_broadcast() {
       loopback = entry.loopback && entry.up;
     }
     if (entry.broadcast) {
-      assert((*entry.broadcast & entry.netmask) == (entry.address & entry.netmask));
-      assert((*entry.broadcast | entry.netmask) == 0xffffffffu);
+      assert(*entry.broadcast == (entry.address | ~entry.netmask));
+      assert(*entry.broadcast != entry.address);
     }
   }
   assert(loopback);

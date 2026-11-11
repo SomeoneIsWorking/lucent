@@ -15,7 +15,7 @@ struct Ipv4Interface {
   std::string description;
   std::uint32_t address = 0;
   std::uint32_t netmask = 0;
-  // The directed broadcast address, present only when the interface can broadcast.
+  // The subnet's directed broadcast address, present only when the interface can broadcast.
   std::optional<std::uint32_t> broadcast;
   bool up = false;
   // Carrier present: a bridge with no ports is up but not running.

@@ -32,6 +32,15 @@
 namespace lucent::net {
 namespace {
 
+// The subnet's directed broadcast; a /31, a /32 or no mask has none. Derived rather than read: an
+// address added without one leaves getifaddrs reporting the interface's own address there.
+std::optional<std::uint32_t> directed_broadcast(std::uint32_t address, std::uint32_t netmask) {
+  if (netmask == 0u || ~netmask < 3u) {
+    return std::nullopt;
+  }
+  return address | ~netmask;
+}
+
 #if !defined(_WIN32) && !defined(__EMSCRIPTEN__)
 std::uint32_t host_order(const sockaddr *address) {
   return ntohl(reinterpret_cast<const sockaddr_in *>(address)->sin_addr.s_addr);
@@ -99,8 +108,8 @@ std::optional<std::vector<Ipv4Interface>> host_interfaces(std::string &error) {
       entry.loopback = loopback;
       entry.multicast = multicast;
       entry.point_to_point = point_to_point;
-      if (!loopback && !point_to_point && prefix < 31u) {
-        entry.broadcast = entry.address | ~entry.netmask;
+      if (!loopback && !point_to_point) {
+        entry.broadcast = directed_broadcast(entry.address, entry.netmask);
       }
       out.push_back(std::move(entry));
     }
@@ -150,8 +159,8 @@ std::optional<std::vector<Ipv4Interface>> host_interfaces(std::string &error) {
     if (ioctl(probe, SIOCGIFNETMASK, &request) == 0) {
       entry.netmask = host_order(&request.ifr_netmask);
     }
-    if ((flags & IFF_BROADCAST) != 0 && ioctl(probe, SIOCGIFBRDADDR, &request) == 0) {
-      entry.broadcast = host_order(&request.ifr_broadaddr);
+    if ((flags & IFF_BROADCAST) != 0) {
+      entry.broadcast = directed_broadcast(entry.address, entry.netmask);
     }
     out.push_back(std::move(entry));
   }
@@ -179,9 +188,8 @@ std::optional<std::vector<Ipv4Interface>> host_interfaces(std::string &error) {
       entry.netmask = host_order(at->ifa_netmask);
     }
     set_flags(entry, at->ifa_flags);
-    if ((at->ifa_flags & IFF_BROADCAST) != 0 && at->ifa_broadaddr != nullptr &&
-        at->ifa_broadaddr->sa_family == AF_INET) {
-      entry.broadcast = host_order(at->ifa_broadaddr);
+    if ((at->ifa_flags & IFF_BROADCAST) != 0) {
+      entry.broadcast = directed_broadcast(entry.address, entry.netmask);
     }
     out.push_back(std::move(entry));
   }
