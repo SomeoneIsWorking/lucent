@@ -19,6 +19,7 @@ endif()
 add_library(lucent STATIC
   src/config.cpp
   src/content.cpp
+  src/count_histogram.cpp
   src/cvar.cpp
   src/http.cpp
   src/http_client.cpp
@@ -28,8 +29,10 @@ add_library(lucent STATIC
   src/platform.cpp
   src/rotation.cpp
   src/text.cpp
+  src/thread_work_counter.cpp
   src/touch.cpp
   src/version.cpp
+  src/work_clock.cpp
 )
 add_library(lucent::lucent ALIAS lucent)
 
@@ -173,6 +176,10 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     target_link_libraries(lucent_cvar_tests PRIVATE lucent)
     add_test(NAME lucent_cvar_tests COMMAND lucent_cvar_tests)
     set_tests_properties(lucent_cvar_tests PROPERTIES TIMEOUT 30)
+
+    add_executable(lucent_perf_tests tests/test_perf.cpp)
+    target_link_libraries(lucent_perf_tests PRIVATE lucent Threads::Threads)
+    add_test(NAME lucent_perf_tests COMMAND lucent_perf_tests)
 
     add_executable(lucent_version_tests tests/test_version.cpp)
     target_link_libraries(lucent_version_tests PRIVATE lucent)

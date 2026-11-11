@@ -26,6 +26,7 @@ S007 is the current focus.
 | S011 | Linux applications select one local file asynchronously through a native GTK chooser | partial | — | G001 |
 | S012 | Linux applications read regular files asynchronously within a strict byte budget | verified | — | G001 |
 | S013 | Linux applications stage immutable binary backing files asynchronously with bounded lifetime storage | verified | S002 | G001 |
+| S014 | Programs measure their cost in units host load does not move: per-thread instructions or CPU time, summed across handoff threads, with count percentiles | verified | — | G001 |
 
 ## Capability details
 
@@ -138,3 +139,10 @@ The worker seams exercise disk-write failure, cancellation during a real partial
 output removal: further staging is refused without adding files, while terminal cleanup retries removal.
 A fresh subprocess publishes one file, starts another, and returns without further GLib pumping;
 terminal destruction drains and cleans all owned output before the process exits.
+
+### S014 — Load-independent cost
+
+Evidence: `lucent_perf_tests` checks exact percentiles below 64, a p99 within the 1.6% bucket bound
+with exact max and total, a counter that advances over work, and a `WorkClock` that adds a second
+thread's work across a mutex handoff. psxport meters Spyro 1 with it: three runs of one binary at
+host load 6-22 agreed within 0.064% per CPU phase and exactly on GPU counts.
