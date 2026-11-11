@@ -95,7 +95,8 @@ if(LUCENT_BUILD_ONLINE)
   find_package(OpenSSL 3 REQUIRED COMPONENTS Crypto SSL)
   add_library(lucent_online STATIC
     src/p2p/connector.cpp src/p2p/crypto.cpp src/p2p/descriptor.cpp src/p2p/direct.cpp
-    src/p2p/handshake.cpp src/p2p/nat_pmp.cpp src/p2p/packet_seal.cpp src/p2p/path.cpp
+    src/p2p/handshake.cpp src/p2p/nat_pmp.cpp src/p2p/nostr.cpp src/p2p/nostr_directory.cpp
+    src/p2p/packet_seal.cpp src/p2p/path.cpp
     src/p2p/path_bridge.cpp
     src/p2p/port_lease.cpp src/p2p/reliable_link.cpp src/p2p/schnorr.cpp src/p2p/stun.cpp
     src/p2p/tls_stream.cpp
@@ -285,9 +286,9 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 
     if(TARGET lucent_online)
       foreach(_lucent_p2p_test crypto descriptor handshake reliable_link stun direct connector
-        port_lease path_bridge schnorr tls_stream)
+        port_lease path_bridge schnorr tls_stream nostr nostr_directory)
         add_executable(lucent_p2p_${_lucent_p2p_test}_tests tests/p2p/test_${_lucent_p2p_test}.cpp)
-        target_include_directories(lucent_p2p_${_lucent_p2p_test}_tests PRIVATE src)
+        target_include_directories(lucent_p2p_${_lucent_p2p_test}_tests PRIVATE src tests)
         target_link_libraries(lucent_p2p_${_lucent_p2p_test}_tests PRIVATE lucent::online)
         add_test(NAME lucent_p2p_${_lucent_p2p_test}_tests
           COMMAND lucent_p2p_${_lucent_p2p_test}_tests)

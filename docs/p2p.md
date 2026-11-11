@@ -23,6 +23,9 @@ the core keeps the title-neutral socket pieces. The plan and its phases are
 | `Handshake`, `SessionKeys` | the one authenticated meeting over any path |
 | `ReliableLink` | ordered, capped messages over a sealed path |
 | `PathBridge` | a local process's datagrams over a path only this process can open |
+| `nostr::Event`, `nostr::Relay` | NIP-01 events (canonical form, id, BIP-340 signature) and one ws/wss relay: publish to OK, query to EOSE, forged events dropped |
+| `Directory`, `Lobby` | where a game lists open lobbies; it only carries the invite a host would share |
+| `NostrDirectory` | lobbies as NIP-78 addressable events (`d` per lobby, `t` = `lucent-<game>`, NIP-40 expiry) on every relay at once |
 | `TlsStream`, `TlsTrust`, `system_roots_pem` | TLS 1.2+ over TCP (OpenSSL libssl) for the HTTP and WebSocket clients, checked against the system's roots and the name dialled |
 | `ZeroTierPaths` | the seam the connector reaches ZeroTier through, if the application gives it one |
 | `ZeroTierNode` (`lucent::zerotier`) | the process's one embedded libzt node on the application's ad-hoc network |
@@ -51,6 +54,19 @@ The application keeps its message kinds and caps, its wording, its patience and 
    (a game runner) cannot open a ZeroTier path, so the application keeps the path in a
    `PathBridge` for the game: the runner sends to `local()` on loopback and the bridge carries it to
    the peer and back. Only loopback senders reach the peer and only the peer reaches the runner.
+
+## Discovery
+
+A host with an invite may list it. `NostrDirectory` signs each lobby with a key of its own (fresh
+each run) as kind 30078 with tags `d` (the lobby id), `t` (`lucent-<game>`) and `expiration` (now +
+300 s); a republish replaces it, so the host publishes again inside that window while the lobby is
+open. Withdrawing publishes the same `d` with no invite and a 60 s expiry. `list` asks every relay
+for the game's `t` since 300 s ago, keeps the newest event per host and id, and drops lobbies that
+are withdrawn, lapsed, malformed or fail their id or signature. Every call reaches the relays on
+threads at once and one relay that answers is enough; the log line names the ones that did not.
+`kDefaultNostrRelays` are relays shown to store and return such an event; an application can pass
+its own. Nothing about a lobby is trusted beyond its invite: a code from a stranger only connects
+to that stranger.
 
 ## ZeroTier
 
@@ -100,6 +116,8 @@ addresses. ZeroTier (id 1): 40-bit node id, port.
 - Every wait has a limit and the connector stops on destruction.
 - A router mapping is asked for 120 s and renewed at half its lease; more than 600 s, or a permanent
   one, is refused.
+- A relay's events count only when their id hashes their canonical form and their signature checks
+  out; a lobby past its expiry or without an invite is never listed.
 - A TLS stream verifies the peer's chain and the dialled name (SNI and host check) before it carries
   a byte; the roots are OpenSSL's default paths on Linux, the CA folders on Android, the Keychain's
   anchors on macOS and the ROOT store on Windows, plus any PEM the caller adds.
@@ -111,7 +129,11 @@ replayed, wrong-secret and other-label handshakes are dropped, NAT-PMP and UPnP 
 renew and take down a lease, a reliable link carries a 150 kB message in order and
 breaks on a size past its cap, a fake STUN server answers `gather_direct`, two connectors meet
 from a pasted invite, and a TLS stream reaches a loopback server whose certificate a test CA signs
-for one name while another name or an untrusted root is refused. `lucent_p2p_zerotier_tests` (Linux) runs in its own network namespace with a
+for one name while another name or an untrusted root is refused. Nostr events sign and read
+back, a relay stand-in refuses one and answers a query with a forged event among real ones, and a
+`NostrDirectory` over two stand-ins and a dead relay lists a lobby once and drops withdrawn, lapsed,
+forged and other games' ones. Live, on the default relays: publish reaches all five in about 1.5 s
+and a second key lists the lobby with its fields, then none after withdraw (2026-11-11). `lucent_p2p_zerotier_tests` (Linux) runs in its own network namespace with a
 dummy interface: a lab root, a host, a friend and a stranger, one process each. Host and friend
 connect by a code over ZeroTier alone and trade a message on the reliable link; the stranger, who
 has the host's node and network but not the secret, gets nowhere. It prints how long each node took

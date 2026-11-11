@@ -61,8 +61,8 @@ Optional, and only publishes the same descriptor. `Directory` interface: `publis
 `list(game)`, `withdraw()`. A game queries several directories and merges; a directory that is down
 degrades to the others.
 
-- Nostr first and default: a short-lived signed event per lobby with a NIP-40 expiry, sent to a
-  shipped list of 3–5 public relays; readers query them all and merge. A ZeroTier node id instead of
+- Nostr first and default: a short-lived signed event per lobby (NIP-78 kind 30078, addressable,
+  so a republish replaces it) with a NIP-40 expiry, sent to a shipped list of 5 public relays; readers query them all and merge. A ZeroTier node id instead of
   an IP where it will do. Prior art first (Trystero's Nostr signalling; libsecp256k1, MIT). Relays
   are WebSocket over TLS: needs a TLS client (OpenSSL libssl; Android trust store through the shared
   android-port layer).
@@ -84,7 +84,8 @@ state, load state, advance one frame, set the pads. GGPO (MIT) and its forks are
    green before and after. **In progress.**
 2. Embedded ZeroTier on the SomeoneIsWorking libzt fork, shared prefix, `find_package`; Android NDK
    arm64-v8a and x86_64.
-3. Nostr discovery.
+3. Nostr discovery. **Shown in Lucent** (`NostrDirectory`, live on the five default relays); a game's
+   lobby screen consuming it is next.
 4. Self-hosted lobby.
 5. Rollback engine with psxport (Crash Bash 4-player), then LF2.
 6. X-Men Legends II: game's own LAN netcode over the transport; broadcast discovery becomes unicast to
