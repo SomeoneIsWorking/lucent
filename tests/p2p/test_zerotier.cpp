@@ -6,8 +6,6 @@
 #include "lucent/p2p/reliable_link.h"
 #include "lucent/p2p/zerotier.h"
 
-#include <ZeroTierSockets.h>
-
 #include <array>
 #include <cassert>
 #include <chrono>
@@ -60,32 +58,16 @@ std::string hex(const crypto::Bytes &bytes) {
   return out;
 }
 
-// A root identity and the signed root set naming it at the lab address.
-void make_root(const std::filesystem::path &dir) {
-  std::array<char, ZTS_ID_STR_BUF_LEN> key{};
-  unsigned int length = key.size();
-  const int made = zts_id_new(key.data(), &length);
-  assert(made == ZTS_ERR_OK);
-  const std::string secret{key.data()};
-  std::string identity = secret.substr(0, secret.rfind(':'));
-  std::string endpoint = std::string{kLabAddress} + "/" + std::to_string(kRootPort);
-  zts_root_set_t roots{};
-  roots.public_id_str[0] = identity.data();
-  roots.endpoint_ip_str[0][0] = endpoint.data();
-  std::array<char, ZTS_STORE_DATA_LEN> set{};
-  std::array<char, ZTS_STORE_DATA_LEN> previous{};
-  std::array<char, ZTS_STORE_DATA_LEN> current{};
-  unsigned int set_length = 0;
-  unsigned int previous_length = 0;
-  unsigned int current_length = 0;
-  const int signed_set =
-      zts_util_sign_root_set(set.data(), &set_length, previous.data(), &previous_length,
-                             current.data(), &current_length, 1, 1, &roots);
-  assert(signed_set == ZTS_ERR_OK);
-  std::filesystem::create_directories(dir / "root");
-  write_file(dir / "root" / "identity.secret", secret);
-  write_file(dir / "root" / "identity.public", identity);
-  write_file(dir / "roots", {set.data(), set_length});
+// A lab root at the lab address, and its root set for every node.
+void make_lab_root(const std::filesystem::path &dir) {
+  std::string error;
+  const std::optional<std::string> roots =
+      make_root(dir / "root", std::string{kLabAddress} + "/" + std::to_string(kRootPort), error);
+  if (!roots) {
+    std::fprintf(stderr, "no lab root: %s\n", error.c_str());
+    std::exit(1);
+  }
+  write_file(dir / "roots", *roots);
 }
 
 std::unique_ptr<ZeroTierNode> node(const std::filesystem::path &dir, const char *name,
@@ -283,7 +265,7 @@ int run_test(const std::string &self) {
   const std::filesystem::path dir =
       std::filesystem::current_path() / ("zerotier-test-" + std::to_string(getpid()));
   std::filesystem::create_directories(dir);
-  make_root(dir);
+  make_lab_root(dir);
   Child root = spawn(self, {"root", dir.string()}, false);
   Child host = spawn(self, {"host", dir.string()}, true);
   const std::string code = first_line(host.output);

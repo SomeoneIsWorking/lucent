@@ -70,7 +70,10 @@ already there connects about 2 s after pasting the code.
   and its peers. The identity's secret stays in storage and is never logged.
 - ZeroTier binds every interface but loopback and sends nothing over it. A lab root is any node
   whose identity is in a root set signed with `zts_util_sign_root_set` at a non-loopback address;
-  `ZeroTierConfig::roots` takes that set instead of ZeroTier's public roots.
+  `ZeroTierConfig::roots` takes that set instead of ZeroTier's public roots. `make_root` writes such
+  an identity into a node's storage and returns the set.
+- A host whose node is not on its network yet waits up to `Patience::zerotier` for it before
+  showing the code; a friend's path opens at once and its handshake resends until the node is.
 
 ## Descriptor wire
 

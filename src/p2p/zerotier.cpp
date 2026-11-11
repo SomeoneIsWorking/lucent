@@ -4,6 +4,7 @@
 
 #include <array>
 #include <cstring>
+#include <fstream>
 
 #include "lucent/log.h"
 
@@ -103,6 +104,43 @@ private:
 };
 
 } // namespace
+
+std::optional<std::string> make_root(const std::filesystem::path &storage,
+                                     const std::string &endpoint, std::string &error) {
+  std::array<char, ZTS_ID_STR_BUF_LEN> key{};
+  unsigned int length = key.size();
+  if (zts_id_new(key.data(), &length) != ZTS_ERR_OK) {
+    error = "ZeroTier made no identity";
+    return std::nullopt;
+  }
+  const std::string secret{key.data()};
+  std::string identity = secret.substr(0, secret.rfind(':'));
+  std::string where = endpoint;
+  zts_root_set_t roots{};
+  roots.public_id_str[0] = identity.data();
+  roots.endpoint_ip_str[0][0] = where.data();
+  std::array<char, ZTS_STORE_DATA_LEN> set{};
+  std::array<char, ZTS_STORE_DATA_LEN> previous{};
+  std::array<char, ZTS_STORE_DATA_LEN> current{};
+  unsigned int set_length = 0;
+  unsigned int previous_length = 0;
+  unsigned int current_length = 0;
+  if (zts_util_sign_root_set(set.data(), &set_length, previous.data(), &previous_length,
+                             current.data(), &current_length, 1, 1, &roots) != ZTS_ERR_OK) {
+    error = "ZeroTier did not sign the root set";
+    return std::nullopt;
+  }
+  std::error_code made;
+  std::filesystem::create_directories(storage, made);
+  if (made) {
+    error = "no ZeroTier storage at " + storage.string() + ": " + made.message();
+    return std::nullopt;
+  }
+  // libzt reads the node's identity from these two files.
+  std::ofstream{storage / "identity.secret", std::ios::binary} << secret;
+  std::ofstream{storage / "identity.public", std::ios::binary} << identity;
+  return std::string{set.data(), set_length};
+}
 
 std::unique_ptr<ZeroTierNode> ZeroTierNode::start(const ZeroTierConfig &config,
                                                   std::string &error) {

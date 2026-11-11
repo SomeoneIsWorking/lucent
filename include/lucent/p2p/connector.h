@@ -35,6 +35,9 @@ struct Patience {
   std::chrono::seconds friend_tries{std::chrono::minutes{2}};
   // Both punch this long once the host has the friend's reply.
   std::chrono::seconds punch{std::chrono::seconds{15}};
+  // A host whose ZeroTier node is still reaching its network waits this long for it, so the code
+  // can carry it.
+  std::chrono::seconds zerotier{std::chrono::seconds{20}};
 };
 
 struct ConnectorConfig {

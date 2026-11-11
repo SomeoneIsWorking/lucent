@@ -26,6 +26,12 @@ struct ZeroTierConfig {
   std::uint16_t network_port = 0;
 };
 
+// A root of one's own, for a lab with no internet: a fresh identity in `storage`, and the signed
+// root set naming it at `endpoint` ("address/port"), which every node there is given as
+// `ZeroTierConfig::roots`. Nothing, with the reason in `error`, if it cannot be made.
+std::optional<std::string> make_root(const std::filesystem::path &storage,
+                                     const std::string &endpoint, std::string &error);
+
 // The process's one ZeroTier node; libzt refuses a second. Started when the application's online
 // menu opens, so it has its roots and its network before a code is made or pasted.
 class ZeroTierNode final : public ZeroTierPaths {

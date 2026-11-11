@@ -163,6 +163,11 @@ bool Connector::find(const std::stop_token &stop, std::unique_ptr<UdpPath> &path
   std::optional<ZeroTierReach> zerotier_reach;
   if (config_.zerotier != nullptr) {
     zerotier_reach = config_.zerotier->reach();
+    for (const Clock::time_point until = Clock::now() + config_.patience.zerotier;
+         host && !zerotier_reach && Clock::now() < until && !stop.stop_requested();
+         zerotier_reach = config_.zerotier->reach()) {
+      std::this_thread::sleep_for(kStepWait);
+    }
     if (host && zerotier_reach) {
       zerotier_path = open_zerotier();
     } else if (const std::optional<ZeroTierReach> &reach = invite_.descriptor.zerotier) {

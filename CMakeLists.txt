@@ -274,7 +274,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
       if(TARGET lucent_zerotier AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
         # ZeroTier sends nothing over loopback: a namespace of its own with a dummy interface.
         add_executable(lucent_p2p_zerotier_tests tests/p2p/test_zerotier.cpp)
-        target_link_libraries(lucent_p2p_zerotier_tests PRIVATE lucent::zerotier libzt::zt)
+        target_link_libraries(lucent_p2p_zerotier_tests PRIVATE lucent::zerotier)
         add_test(NAME lucent_p2p_zerotier_tests
           COMMAND unshare --map-root-user --net sh -c
             "ip link set lo up && ip link add lab0 type dummy && ip addr add 10.77.0.1/24 dev lab0 && ip link set lab0 up && exec \"$0\""
