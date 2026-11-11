@@ -14,7 +14,7 @@ the core keeps the title-neutral socket pieces. The plan and its phases are
 | `net::Endpoint`, `parse_ipv4`, `resolve_endpoint`, `private_ipv4` (core, `ipv4.h`) | IPv4 addresses in host byte order |
 | `net::default_gateway` (core, `network_interfaces.h`) | the default route's gateway |
 | `http::fetch` (core, `http_client.h`) | one plain-HTTP request to a loopback or LAN host (UPnP routers) |
-| `crypto` | random bytes, SHA-256, HMAC, HKDF, ChaCha20-Poly1305, X25519 |
+| `crypto` | random bytes, SHA-256, HMAC, HKDF, ChaCha20-Poly1305, X25519, BIP-340 Schnorr |
 | `PacketSeal`, `PacketOpener` | one sealed datagram per sender key, counter nonce, replay window |
 | `Path`, `UdpPath` | a backend's unauthenticated datagram socket |
 | `Descriptor`, invite and reply codes | where a player may be reached, per backend, as a code |

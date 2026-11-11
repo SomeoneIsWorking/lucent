@@ -43,6 +43,18 @@ bool same_bytes(std::span<const std::uint8_t> first, std::span<const std::uint8_
 // Overwrites `bytes` in a way the compiler keeps.
 void wipe(std::span<std::uint8_t> bytes) noexcept;
 
+// BIP-340 Schnorr signatures on secp256k1, as Nostr signs events: 32-byte secret and x-only
+// public keys, 64-byte signatures.
+inline constexpr std::size_t kSchnorrSignatureBytes = 64;
+// Nothing for a secret that is zero or not below the curve order.
+std::optional<Bytes> schnorr_public_key(std::span<const std::uint8_t> secret);
+// Nothing for a bad secret; `aux` is 32 bytes of fresh randomness (BIP-340 default signing).
+std::optional<Bytes> schnorr_sign(std::span<const std::uint8_t> secret,
+                                  std::span<const std::uint8_t> message,
+                                  std::span<const std::uint8_t> aux);
+bool schnorr_verify(std::span<const std::uint8_t> public_key, std::span<const std::uint8_t> message,
+                    std::span<const std::uint8_t> signature);
+
 // An ephemeral X25519 key pair.
 class KeyPair {
 public:

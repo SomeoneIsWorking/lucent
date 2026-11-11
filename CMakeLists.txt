@@ -25,6 +25,7 @@ add_library(lucent STATIC
   src/byte_stream.cpp
   src/http_client.cpp
   src/ipv4.cpp
+  src/json.cpp
   src/log.cpp
   src/log_c.cpp
   src/network_interfaces.cpp
@@ -96,7 +97,8 @@ if(LUCENT_BUILD_ONLINE)
     src/p2p/connector.cpp src/p2p/crypto.cpp src/p2p/descriptor.cpp src/p2p/direct.cpp
     src/p2p/handshake.cpp src/p2p/nat_pmp.cpp src/p2p/packet_seal.cpp src/p2p/path.cpp
     src/p2p/path_bridge.cpp
-    src/p2p/port_lease.cpp src/p2p/reliable_link.cpp src/p2p/stun.cpp src/p2p/tls_stream.cpp
+    src/p2p/port_lease.cpp src/p2p/reliable_link.cpp src/p2p/schnorr.cpp src/p2p/stun.cpp
+    src/p2p/tls_stream.cpp
     src/p2p/upnp_igd.cpp)
   add_library(lucent::online ALIAS lucent_online)
   target_link_libraries(lucent_online PUBLIC lucent OpenSSL::SSL OpenSSL::Crypto)
@@ -236,6 +238,10 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     target_link_libraries(lucent_touch_tests PRIVATE lucent)
     add_test(NAME lucent_touch_tests COMMAND lucent_touch_tests)
 
+    add_executable(lucent_json_tests tests/test_json.cpp)
+    target_link_libraries(lucent_json_tests PRIVATE lucent)
+    add_test(NAME lucent_json_tests COMMAND lucent_json_tests)
+
     add_executable(lucent_text_tests tests/test_text.cpp)
     target_link_libraries(lucent_text_tests PRIVATE lucent)
     add_test(NAME lucent_text_tests COMMAND lucent_text_tests)
@@ -279,7 +285,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 
     if(TARGET lucent_online)
       foreach(_lucent_p2p_test crypto descriptor handshake reliable_link stun direct connector
-        port_lease path_bridge tls_stream)
+        port_lease path_bridge schnorr tls_stream)
         add_executable(lucent_p2p_${_lucent_p2p_test}_tests tests/p2p/test_${_lucent_p2p_test}.cpp)
         target_include_directories(lucent_p2p_${_lucent_p2p_test}_tests PRIVATE src)
         target_link_libraries(lucent_p2p_${_lucent_p2p_test}_tests PRIVATE lucent::online)
