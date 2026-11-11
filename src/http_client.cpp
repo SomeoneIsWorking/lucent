@@ -19,7 +19,6 @@ using detail::Socket;
 
 constexpr std::string_view kWebSocketGuid = "258EAFA5-E914-47DA-95CA-C5AB0DC85B11";
 constexpr std::size_t kMaxHeaderBytes = std::size_t{16} * 1024;
-constexpr std::size_t kMaxBodyBytes = std::size_t{16} * 1024 * 1024;
 
 constexpr std::uint8_t kFin = 0x80;
 constexpr std::uint8_t kMask = 0x80;
@@ -170,7 +169,7 @@ public:
   Connection(Connection &&) = delete;
   Connection &operator=(Connection &&) = delete;
 
-  bool open(std::uint16_t port, std::string &error) {
+  bool open(const net::Endpoint &server, std::string &error) {
     if (!detail::initialize_socket_runtime()) {
       error = "socket runtime unavailable";
       return false;
@@ -184,11 +183,12 @@ public:
     detail::set_socket_timeouts(socket_);
     sockaddr_in address{};
     address.sin_family = AF_INET;
-    address.sin_port = htons(port);
-    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
+    address.sin_port = htons(server.port);
+    address.sin_addr.s_addr = htonl(server.address);
     if (::connect(detail::native_socket(socket_), reinterpret_cast<const sockaddr *>(&address),
                   sizeof(address)) != 0) {
-      error = "cannot connect to 127.0.0.1:" + std::to_string(port);
+      error = "cannot connect to " + net::format_ipv4(server.address) + ":" +
+              std::to_string(server.port);
       return false;
     }
     return true;
@@ -274,19 +274,25 @@ private:
 
 namespace {
 
-bool exchange_loopback(std::uint16_t port, std::string_view method, std::string_view target,
-                       std::optional<std::string_view> body, FetchResult &result,
-                       std::string &error) {
+constexpr net::Endpoint loopback(std::uint16_t port) {
+  return {0x7F000001u, port};
+}
+
+} // namespace
+
+bool fetch(const net::Endpoint &server, const FetchRequest &sent, FetchResult &result,
+           std::string &error) {
   Connection connection;
-  if (!connection.open(port, error)) {
+  if (!connection.open(server, error)) {
     return false;
   }
-  std::string request = std::string{method} + " " + std::string{target} +
-                        " HTTP/1.1\r\nHost: 127.0.0.1:" + std::to_string(port) +
-                        "\r\nConnection: close\r\n";
-  if (body) {
-    request += "Content-Length: " + std::to_string(body->size()) + "\r\n\r\n";
-    request += *body;
+  std::string request = std::string{sent.method} + " " + std::string{sent.target} +
+                        " HTTP/1.1\r\nHost: " + net::format_ipv4(server.address) + ":" +
+                        std::to_string(server.port) + "\r\nConnection: close\r\n" +
+                        std::string{sent.headers};
+  if (sent.body) {
+    request += "Content-Length: " + std::to_string(sent.body->size()) + "\r\n\r\n";
+    request += *sent.body;
   } else {
     request += "\r\n";
   }
@@ -303,7 +309,7 @@ bool exchange_loopback(std::uint16_t port, std::string_view method, std::string_
   if (const auto value = header_value(head, "Content-Length")) {
     std::size_t parsed = 0;
     if (std::from_chars(value->data(), value->data() + value->size(), parsed).ec != std::errc{} ||
-        parsed > kMaxBodyBytes) {
+        parsed > sent.max_body) {
       error = "bad Content-Length " + *value;
       return false;
     }
@@ -311,7 +317,7 @@ bool exchange_loopback(std::uint16_t port, std::string_view method, std::string_
   }
   std::string response = std::move(head.rest);
   while (!length || response.size() < *length) {
-    if (response.size() > kMaxBodyBytes) {
+    if (response.size() > sent.max_body) {
       error = "response body too large";
       return false;
     }
@@ -332,16 +338,14 @@ bool exchange_loopback(std::uint16_t port, std::string_view method, std::string_
   return true;
 }
 
-} // namespace
-
 bool get_loopback(std::uint16_t port, std::string_view target, FetchResult &result,
                   std::string &error) {
-  return exchange_loopback(port, "GET", target, std::nullopt, result, error);
+  return fetch(loopback(port), FetchRequest{"GET", target, {}, std::nullopt}, result, error);
 }
 
 bool post_loopback(std::uint16_t port, std::string_view target, std::string_view body,
                    FetchResult &result, std::string &error) {
-  return exchange_loopback(port, "POST", target, body, result, error);
+  return fetch(loopback(port), FetchRequest{"POST", target, {}, body}, result, error);
 }
 
 std::string websocket_accept(std::string_view key) {
@@ -373,7 +377,7 @@ bool WebSocketClient::connect_loopback(std::uint16_t port, std::string_view path
                                        std::string &error) {
   close();
   Connection connection;
-  if (!connection.open(port, error)) {
+  if (!connection.open(loopback(port), error)) {
     return false;
   }
   std::random_device random;

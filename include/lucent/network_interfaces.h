@@ -33,4 +33,8 @@ std::optional<std::vector<Ipv4Interface>> ipv4_interfaces(std::string &error);
 // datagram sent to each reaches every IPv4 LAN the host is on, not only the default route's.
 std::vector<std::uint32_t> lan_broadcasts(const std::vector<Ipv4Interface> &interfaces);
 
+// The IPv4 default route's gateway, in host byte order; nothing without one (Android has no route
+// table to read).
+std::optional<std::uint32_t> default_gateway();
+
 } // namespace lucent::net

@@ -23,6 +23,7 @@ add_library(lucent STATIC
   src/cvar.cpp
   src/http.cpp
   src/http_client.cpp
+  src/ipv4.cpp
   src/log.cpp
   src/log_c.cpp
   src/network_interfaces.cpp
@@ -31,6 +32,7 @@ add_library(lucent STATIC
   src/text.cpp
   src/thread_work_counter.cpp
   src/touch.cpp
+  src/udp_socket.cpp
   src/version.cpp
   src/work_clock.cpp
 )
@@ -44,6 +46,11 @@ endif()
 option(LUCENT_BUILD_ZIP "Build lucent's zlib-backed ZIP extraction target"
        ${_lucent_build_zip_default})
 unset(_lucent_build_zip_default)
+if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
+  set(_lucent_build_online_default ON)
+else()
+  set(_lucent_build_online_default OFF)
+endif()
 
 if(LUCENT_BUILD_ZIP)
   find_package(ZLIB REQUIRED)
@@ -78,6 +85,29 @@ if(LUCENT_BUILD_FILE_DIALOG)
   target_compile_options(lucent_file_dialog PRIVATE -Wall -Wextra -Wpedantic)
   set_target_properties(lucent_file_dialog PROPERTIES
     POSITION_INDEPENDENT_CODE ON EXPORT_NAME file_dialog)
+endif()
+
+option(LUCENT_BUILD_ONLINE "Build lucent's OpenSSL-backed peer-to-peer transport target"
+       ${_lucent_build_online_default})
+if(LUCENT_BUILD_ONLINE)
+  find_package(OpenSSL 3 REQUIRED COMPONENTS Crypto)
+  add_library(lucent_online STATIC
+    src/p2p/connector.cpp src/p2p/crypto.cpp src/p2p/descriptor.cpp src/p2p/direct.cpp
+    src/p2p/handshake.cpp src/p2p/nat_pmp.cpp src/p2p/packet_seal.cpp src/p2p/path.cpp
+    src/p2p/port_lease.cpp src/p2p/reliable_link.cpp src/p2p/stun.cpp src/p2p/upnp_igd.cpp)
+  add_library(lucent::online ALIAS lucent_online)
+  target_link_libraries(lucent_online PUBLIC lucent OpenSSL::Crypto)
+  target_include_directories(lucent_online PUBLIC
+    $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
+    $<INSTALL_INTERFACE:include>)
+  target_include_directories(lucent_online PRIVATE ${CMAKE_CURRENT_SOURCE_DIR}/src)
+  target_compile_features(lucent_online PUBLIC cxx_std_20)
+  if(MSVC)
+    target_compile_options(lucent_online PRIVATE /W4)
+  else()
+    target_compile_options(lucent_online PRIVATE -Wall -Wextra -Wpedantic)
+  endif()
+  set_target_properties(lucent_online PROPERTIES POSITION_INDEPENDENT_CODE ON EXPORT_NAME online)
 endif()
 
 find_package(Threads REQUIRED)
@@ -203,6 +233,16 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
       target_include_directories(lucent_zip_streaming_tests PRIVATE src)
       target_link_libraries(lucent_zip_streaming_tests PRIVATE lucent::zip)
       add_test(NAME lucent_zip_streaming_tests COMMAND lucent_zip_streaming_tests)
+    endif()
+
+    if(TARGET lucent_online)
+      foreach(_lucent_p2p_test crypto descriptor handshake reliable_link stun direct connector)
+        add_executable(lucent_p2p_${_lucent_p2p_test}_tests tests/p2p/test_${_lucent_p2p_test}.cpp)
+        target_link_libraries(lucent_p2p_${_lucent_p2p_test}_tests PRIVATE lucent::online)
+        add_test(NAME lucent_p2p_${_lucent_p2p_test}_tests
+          COMMAND lucent_p2p_${_lucent_p2p_test}_tests)
+        set_tests_properties(lucent_p2p_${_lucent_p2p_test}_tests PROPERTIES TIMEOUT 60)
+      endforeach()
     endif()
 
     if(TARGET lucent_file_dialog)

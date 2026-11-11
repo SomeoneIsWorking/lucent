@@ -18,7 +18,12 @@ is dependency-free; optional `lucent::zip` adds zlib-backed archive extraction a
   Consumers own routes and domain behavior; game input, renderer probes, and application state do
   not belong in Lucent.
 - `network_interfaces` owns host IPv4 interface enumeration (address, netmask, broadcast,
-  flags) and the rule for which broadcast addresses reach every LAN. Consumers own sockets.
+  flags), the default gateway, and the rule for which broadcast addresses reach every LAN.
+  `udp_socket` and `ipv4` own the IPv4 UDP socket and address type.
+- `online` (optional, `LUCENT_BUILD_ONLINE`, OpenSSL libcrypto; on by default only in Lucent's own
+  build) owns peer-to-peer transport in `lucent::p2p`: codes, NAT traversal, the authenticated
+  handshake and the reliable link (`docs/p2p.md`, plan `docs/plans/0006-online-framework.md`).
+  Consumers own message kinds and caps, wording, patience and UI.
 - `touch` owns platform-neutral contact-to-zone capture, multi-touch routing, and cancellation.
   Android/SDL3 shells own event acquisition, safe-area layout, and conversion from zone IDs to game
   actions; do not put title-specific controls in Lucent.
@@ -39,3 +44,4 @@ is dependency-free; optional `lucent::zip` adds zlib-backed archive extraction a
   content-identity matcher; game-specific archive layouts and validation do not belong in Lucent.
 
 Full quality check: `python3 tools/check_cpp_quality.py build`. Tests: `ctest --test-dir build`.
+Focused online tests: `ctest --test-dir build/agent -R p2p`.

@@ -1,5 +1,5 @@
-// lucent/http_client.h — the client side of loopback HTTP: one GET or POST, and a WebSocket for
-// local debugging protocols such as Chrome DevTools.
+// lucent/http_client.h — the client side of plain HTTP: one request to a loopback or LAN host, and
+// a loopback WebSocket for local debugging protocols such as Chrome DevTools.
 #pragma once
 
 #include <cstddef>
@@ -8,12 +8,32 @@
 #include <string>
 #include <string_view>
 
+#include "lucent/ipv4.h"
+
 namespace lucent::http {
 
 struct FetchResult {
   int status = 0;
   std::string body;
 };
+
+inline constexpr std::size_t kMaxFetchBodyBytes = std::size_t{16} * 1024 * 1024;
+
+struct FetchRequest {
+  std::string_view method = "GET";
+  std::string_view target = "/";
+  // Extra header lines, each ending in CRLF.
+  std::string_view headers;
+  std::optional<std::string_view> body;
+  // A longer response body is refused.
+  std::size_t max_body = kMaxFetchBodyBytes;
+};
+
+// One request over one connection to plain-HTTP `server`: loopback, or a device on the LAN such as
+// a router. No TLS; a redirect is returned, never followed. A response framed by Content-Length or
+// by the connection closing is read; chunked transfer is refused and named in `error`.
+bool fetch(const net::Endpoint &server, const FetchRequest &request, FetchResult &result,
+           std::string &error);
 
 // GETs `target` from 127.0.0.1:`port` over one connection. A response framed by Content-Length or
 // by the connection closing is read; chunked transfer is refused and named in `error`.

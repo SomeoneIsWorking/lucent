@@ -27,6 +27,13 @@
 #else
 #include <ifaddrs.h>
 #endif
+#if defined(__APPLE__)
+#include <net/route.h>
+#include <sys/sysctl.h>
+#else
+#include <fstream>
+#include <sstream>
+#endif
 #endif
 
 namespace lucent::net {
@@ -199,7 +206,98 @@ std::optional<std::vector<Ipv4Interface>> host_interfaces(std::string &error) {
 
 #endif
 
+#if defined(_WIN32)
+
+std::optional<std::uint32_t> route_gateway() {
+  ULONG size = 16 * 1024;
+  std::vector<unsigned char> buffer;
+  ULONG result = ERROR_BUFFER_OVERFLOW;
+  for (int attempt = 0; attempt < 3 && result == ERROR_BUFFER_OVERFLOW; ++attempt) {
+    buffer.resize(size);
+    result = GetAdaptersAddresses(AF_INET, GAA_FLAG_INCLUDE_GATEWAYS, nullptr,
+                                  reinterpret_cast<IP_ADAPTER_ADDRESSES *>(buffer.data()), &size);
+  }
+  if (result != NO_ERROR) {
+    return std::nullopt;
+  }
+  for (const auto *adapter = reinterpret_cast<const IP_ADAPTER_ADDRESSES *>(buffer.data());
+       adapter != nullptr; adapter = adapter->Next) {
+    if (adapter->OperStatus != IfOperStatusUp) {
+      continue;
+    }
+    for (const IP_ADAPTER_GATEWAY_ADDRESS_LH *gateway = adapter->FirstGatewayAddress;
+         gateway != nullptr; gateway = gateway->Next) {
+      const SOCKADDR *address = gateway->Address.lpSockaddr;
+      if (address != nullptr && address->sa_family == AF_INET) {
+        return ntohl(reinterpret_cast<const sockaddr_in *>(address)->sin_addr.s_addr);
+      }
+    }
+  }
+  return std::nullopt;
+}
+
+#elif defined(__EMSCRIPTEN__)
+
+std::optional<std::uint32_t> route_gateway() {
+  return std::nullopt;
+}
+
+#elif defined(__APPLE__)
+
+std::optional<std::uint32_t> route_gateway() {
+  int query[] = {CTL_NET, PF_ROUTE, 0, AF_INET, NET_RT_FLAGS, RTF_GATEWAY};
+  std::size_t size = 0;
+  if (sysctl(query, 6, nullptr, &size, nullptr, 0) != 0) {
+    return std::nullopt;
+  }
+  std::vector<char> table(size);
+  if (sysctl(query, 6, table.data(), &size, nullptr, 0) != 0) {
+    return std::nullopt;
+  }
+  for (std::size_t at = 0; at + sizeof(rt_msghdr) <= size;) {
+    const auto *message = reinterpret_cast<const rt_msghdr *>(table.data() + at);
+    const auto *destination = reinterpret_cast<const sockaddr *>(message + 1);
+    if ((message->rtm_addrs & (RTA_DST | RTA_GATEWAY)) == (RTA_DST | RTA_GATEWAY) &&
+        destination->sa_family == AF_INET && host_order(destination) == 0) {
+      const std::size_t skip = (destination->sa_len + 3u) & ~std::size_t{3};
+      const auto *gateway =
+          reinterpret_cast<const sockaddr *>(reinterpret_cast<const char *>(destination) + skip);
+      if (gateway->sa_family == AF_INET) {
+        return host_order(gateway);
+      }
+    }
+    at += message->rtm_msglen;
+  }
+  return std::nullopt;
+}
+
+#else
+
+std::optional<std::uint32_t> route_gateway() {
+  std::ifstream routes{"/proc/net/route"};
+  std::string line;
+  std::getline(routes, line);
+  while (std::getline(routes, line)) {
+    std::istringstream fields{line};
+    std::string name;
+    std::uint32_t destination = 0;
+    std::uint32_t gateway = 0;
+    // The kernel prints both as the bytes in memory: network order on any host.
+    fields >> name >> std::hex >> destination >> gateway;
+    if (fields && destination == 0 && gateway != 0) {
+      return ntohl(gateway);
+    }
+  }
+  return std::nullopt;
+}
+
+#endif
+
 } // namespace
+
+std::optional<std::uint32_t> default_gateway() {
+  return route_gateway();
+}
 
 std::optional<std::vector<Ipv4Interface>> ipv4_interfaces(std::string &error) {
   return host_interfaces(error);
