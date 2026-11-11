@@ -32,6 +32,7 @@ add_library(lucent STATIC
   src/platform.cpp
   src/rollback/session.cpp
   src/rotation.cpp
+  src/stop_signals.cpp
   src/text.cpp
   src/thread_work_counter.cpp
   src/touch.cpp
@@ -128,8 +129,8 @@ if(LUCENT_BUILD_ONLINE)
     target_compile_options(lucent_online PRIVATE -Wall -Wextra -Wpedantic)
   endif()
   set_target_properties(lucent_online PROPERTIES POSITION_INDEPENDENT_CODE ON EXPORT_NAME online)
-  # The self-hosted lobby list, for a server someone rents; POSIX signals end it.
-  if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR AND UNIX AND NOT ANDROID)
+  # The self-hosted lobby list, for a server someone rents.
+  if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR AND NOT ANDROID)
     add_executable(lucent_lobby_server src/p2p/lobby_server_main.cpp)
     target_link_libraries(lucent_lobby_server PRIVATE lucent::online)
   endif()
@@ -161,7 +162,7 @@ if(LUCENT_BUILD_ZEROTIER)
   set_target_properties(lucent_zerotier PROPERTIES POSITION_INDEPENDENT_CODE ON
     EXPORT_NAME zerotier)
   # A lab's own root, for labs with no internet; a consumer's lab depends on the target by name.
-  if(UNIX AND NOT ANDROID)
+  if(NOT ANDROID)
     add_executable(lucent_zerotier_root src/p2p/zerotier_root_main.cpp)
     target_link_libraries(lucent_zerotier_root PRIVATE lucent::zerotier)
   endif()
@@ -258,6 +259,12 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     add_executable(lucent_worker_tests tests/test_worker.cpp)
     target_link_libraries(lucent_worker_tests PRIVATE lucent)
     add_test(NAME lucent_worker_tests COMMAND lucent_worker_tests)
+
+    if(NOT WIN32)
+      add_executable(lucent_stop_signals_tests tests/test_stop_signals.cpp)
+      target_link_libraries(lucent_stop_signals_tests PRIVATE lucent)
+      add_test(NAME lucent_stop_signals_tests COMMAND lucent_stop_signals_tests)
+    endif()
 
     add_executable(lucent_url_tests tests/test_url.cpp)
     target_link_libraries(lucent_url_tests PRIVATE lucent)

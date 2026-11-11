@@ -1,17 +1,15 @@
-// lucent_lobby_server [--port N]: a LobbyBoard on every IPv4 interface until SIGINT or SIGTERM.
+// lucent_lobby_server [--port N]: a LobbyBoard on every IPv4 interface until it is asked to stop.
 // TLS, if wanted, is a reverse proxy in front of it.
 #include "lucent/http.h"
 #include "lucent/log.h"
 #include "lucent/p2p/lobby_board.h"
+#include "lucent/stop_signals.h"
 
 #include <charconv>
-#include <csignal>
 #include <cstdint>
 #include <exception>
 #include <string>
 #include <string_view>
-
-#include <pthread.h>
 
 namespace {
 
@@ -30,12 +28,8 @@ int serve(int argc, char **argv) {
     lucent::log(lucent::Level::Error, "lobby", "usage: lucent_lobby_server [--port N]");
     return 2;
   }
-  // Blocked before the server's threads start, so only sigwait below takes them.
-  sigset_t stop_signals;
-  sigemptyset(&stop_signals);
-  sigaddset(&stop_signals, SIGINT);
-  sigaddset(&stop_signals, SIGTERM);
-  pthread_sigmask(SIG_BLOCK, &stop_signals, nullptr);
+  // Before the server's threads start.
+  lucent::StopSignals stop;
 
   lucent::p2p::LobbyBoard board;
   lucent::http::ServerOptions options;
@@ -52,9 +46,7 @@ int serve(int argc, char **argv) {
     return 1;
   }
   lucent::log(lucent::Level::Info, "lobby", "serving lobbies on port " + std::to_string(port));
-  int received = 0;
-  sigwait(&stop_signals, &received);
-  lucent::log(lucent::Level::Info, "lobby", "stopping on signal " + std::to_string(received));
+  lucent::log(lucent::Level::Info, "lobby", "stopping on " + stop.wait());
   server.stop();
   return 0;
 }

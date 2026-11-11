@@ -1,18 +1,16 @@
 // lucent_zerotier_root <storage> <address/port> <roots file>: a ZeroTier root for a lab with no
 // internet. Makes a root identity in `storage`, writes the signed root set naming it at that
-// endpoint for the lab's nodes, and runs the root until SIGINT or SIGTERM.
+// endpoint for the lab's nodes, and runs the root until it is asked to stop.
 #include "lucent/log.h"
 #include "lucent/p2p/zerotier.h"
+#include "lucent/stop_signals.h"
 
 #include <charconv>
-#include <csignal>
 #include <cstdint>
 #include <exception>
 #include <fstream>
 #include <string>
 #include <string_view>
-
-#include <pthread.h>
 
 namespace {
 
@@ -32,12 +30,8 @@ int serve(int argc, char **argv) {
     lucent::log(lucent::Level::Error, "zerotier", "not an address/port: " + endpoint);
     return 2;
   }
-  // Blocked before the node's threads start, so only sigwait below takes them.
-  sigset_t stop_signals;
-  sigemptyset(&stop_signals);
-  sigaddset(&stop_signals, SIGINT);
-  sigaddset(&stop_signals, SIGTERM);
-  pthread_sigmask(SIG_BLOCK, &stop_signals, nullptr);
+  // Before the node's threads start.
+  lucent::StopSignals stop;
 
   std::string error;
   const std::optional<std::string> roots = lucent::p2p::make_root(storage, endpoint, error);
@@ -60,9 +54,7 @@ int serve(int argc, char **argv) {
     return 1;
   }
   lucent::log(lucent::Level::Info, "zerotier", "root running at " + endpoint);
-  int received = 0;
-  sigwait(&stop_signals, &received);
-  lucent::log(lucent::Level::Info, "zerotier", "stopping on signal " + std::to_string(received));
+  lucent::log(lucent::Level::Info, "zerotier", "stopping on " + stop.wait());
   return 0;
 }
 

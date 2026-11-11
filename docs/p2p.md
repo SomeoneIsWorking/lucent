@@ -84,7 +84,7 @@ to that stranger. `Lobby` fields and their limits, `publishable` and the JSON fo
 `directory.h` for every directory.
 
 `lucent_lobby_server [--port N]` (default 8077) serves a `LobbyBoard` on every IPv4 interface until
-SIGINT or SIGTERM; TLS, when wanted, is a reverse proxy in front. A game points an `HttpDirectory`
+`StopSignals` hears a stop request; TLS, when wanted, is a reverse proxy in front. A game points an `HttpDirectory`
 at its base URL instead of, or beside, the relays. The board keys a lobby by its host, the SHA-256
 of a token only that host's directory holds, so nobody else replaces or withdraws it; a lobby lapses
 300 s after its last publish, and the board holds at most 500 lobbies per game and 256 games.
@@ -137,8 +137,8 @@ already there connects about 2 s after pasting the code.
   whose identity is in a root set signed with `zts_util_sign_root_set` at a non-loopback address;
   `ZeroTierConfig::roots` takes that set instead of ZeroTier's public roots. `make_root` writes such
   an identity into a node's storage and returns the set. `lucent_zerotier_root <storage>
-  <address/port> <roots file>` (UNIX, not Android) is that root as a program for a game's lab:
-  it writes the set to the file and runs until SIGINT or SIGTERM.
+  <address/port> <roots file>` (every platform but Android) is that root as a program for a
+  game's lab: it writes the set to the file and runs until `StopSignals` hears a stop request.
 - A host whose node is not on its network yet waits up to `Patience::zerotier` for it before
   showing the code; a friend's path opens at once and its handshake resends until the node is.
 
