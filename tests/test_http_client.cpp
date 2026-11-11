@@ -3,6 +3,7 @@
 
 #include "http_socket.h"
 #include "test_environment.h"
+#include "websocket_peer.h"
 
 #include <array>
 #include <cstdint>
@@ -22,114 +23,6 @@ void expect(bool condition, const char *what) {
     ++g_failures;
   }
 }
-
-// A one-connection WebSocket peer on a loopback socket.
-class Peer {
-public:
-  Peer() {
-    detail::initialize_socket_runtime();
-    listener_ = detail::create_tcp_socket();
-    sockaddr_in address{};
-    address.sin_family = AF_INET;
-    address.sin_addr.s_addr = htonl(INADDR_LOOPBACK);
-    const bool bound = ::bind(detail::native_socket(listener_),
-                              reinterpret_cast<const sockaddr *>(&address), sizeof(address)) == 0 &&
-                       ::listen(detail::native_socket(listener_), 1) == 0;
-    detail::SocketLength length = sizeof(address);
-    const bool named = ::getsockname(detail::native_socket(listener_),
-                                     reinterpret_cast<sockaddr *>(&address), &length) == 0;
-    expect(bound && named, "the peer listens on loopback");
-    port_ = ntohs(address.sin_port);
-  }
-  ~Peer() {
-    detail::close_socket(client_);
-    detail::close_socket(listener_);
-  }
-  Peer(const Peer &) = delete;
-  Peer &operator=(const Peer &) = delete;
-  Peer(Peer &&) = delete;
-  Peer &operator=(Peer &&) = delete;
-
-  std::uint16_t port() const {
-    return port_;
-  }
-
-  // Accepts and answers the upgrade; a wrong accept value when `honest` is false.
-  void handshake(bool honest) {
-    client_ = detail::accept_socket(listener_);
-    if (detail::is_invalid_socket(client_)) {
-      expect(false, "the peer accepts the client");
-      return;
-    }
-    detail::set_socket_timeouts(client_);
-    std::string request;
-    while (request.find("\r\n\r\n") == std::string::npos) {
-      std::array<char, 512> chunk{};
-      const std::ptrdiff_t got = detail::receive_bytes(client_, chunk.data(), chunk.size());
-      if (got <= 0) {
-        return;
-      }
-      request.append(chunk.data(), static_cast<std::size_t>(got));
-    }
-    const std::string marker = "Sec-WebSocket-Key: ";
-    const std::size_t at = request.find(marker) + marker.size();
-    const std::string key = request.substr(at, request.find("\r\n", at) - at);
-    send("HTTP/1.1 101 Switching Protocols\r\nUpgrade: websocket\r\nConnection: Upgrade\r\n"
-         "Sec-WebSocket-Accept: " +
-         (honest ? lucent::http::websocket_accept(key) : std::string{"wrong"}) + "\r\n\r\n");
-  }
-
-  void send(const std::string &bytes) {
-    detail::send_bytes(client_, bytes.data(), bytes.size());
-  }
-
-  // One unmasked server frame.
-  void frame(std::uint8_t first, const std::string &payload) {
-    std::string out;
-    out.push_back(static_cast<char>(first));
-    if (payload.size() < 126) {
-      out.push_back(static_cast<char>(payload.size()));
-    } else {
-      out.push_back(static_cast<char>(126));
-      out.push_back(static_cast<char>((payload.size() >> 8U) & 0xffU));
-      out.push_back(static_cast<char>(payload.size() & 0xffu));
-    }
-    send(out + payload);
-  }
-
-  // Reads one client frame, which must be masked, and returns its opcode and payload.
-  std::pair<int, std::string> read_frame() {
-    std::array<char, 2> header{};
-    read(header.data(), 2);
-    const auto second = static_cast<std::uint8_t>(header[1]);
-    expect((second & 0x80u) != 0, "client frames are masked");
-    std::array<char, 4> mask{};
-    read(mask.data(), 4);
-    std::string payload(second & 0x7fu, '\0');
-    read(payload.data(), payload.size());
-    for (std::size_t i = 0; i < payload.size(); ++i) {
-      payload[i] = static_cast<char>(static_cast<std::uint8_t>(payload[i]) ^
-                                     static_cast<std::uint8_t>(mask[i % 4]));
-    }
-    return {static_cast<std::uint8_t>(header[0]) & 0x0fU, payload};
-  }
-
-private:
-  void read(char *bytes, std::size_t size) {
-    while (size > 0) {
-      const std::ptrdiff_t got = detail::receive_bytes(client_, bytes, size);
-      if (got <= 0) {
-        return;
-      }
-      bytes += got;
-      size -= static_cast<std::size_t>(got);
-    }
-  }
-
-  detail::Socket listener_ = detail::kInvalidSocket;
-  detail::Socket client_ = detail::kInvalidSocket;
-  std::uint16_t port_ = 0;
-};
 
 void test_accept_matches_rfc_example() {
   expect(lucent::http::websocket_accept("dGhlIHNhbXBsZSBub25jZQ==") ==
@@ -180,7 +73,7 @@ void test_post_sends_its_body() {
 }
 
 void test_websocket_exchange() {
-  Peer peer;
+  lucent::test::WebSocketPeer peer;
   std::thread server{[&peer] {
     peer.handshake(true);
     const auto [opcode, text] = peer.read_frame();
@@ -202,10 +95,11 @@ void test_websocket_exchange() {
          "an extended-length frame arrives whole");
   expect(!client.receive_text(error) && !client.connected(), "a close frame ends the connection");
   server.join();
+  expect(peer.ok(), "the peer accepts the client and reads masked frames");
 }
 
 void test_websocket_rejects_a_wrong_accept() {
-  Peer peer;
+  lucent::test::WebSocketPeer peer;
   std::thread server{[&peer] {
     peer.handshake(false);
   }};
