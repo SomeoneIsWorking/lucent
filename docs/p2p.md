@@ -22,6 +22,7 @@ the core keeps the title-neutral socket pieces. The plan and its phases are
 | `gather_direct`, `reachable_locals` | the direct backend's reach |
 | `Handshake`, `SessionKeys` | the one authenticated meeting over any path |
 | `ReliableLink` | ordered, capped messages over a sealed path |
+| `PathBridge` | a local process's datagrams over a path only this process can open |
 | `ZeroTierPaths` | the seam the connector reaches ZeroTier through, if the application gives it one |
 | `ZeroTierNode` (`lucent::zerotier`) | the process's one embedded libzt node on the application's ad-hoc network |
 | `Connector` | invite → (reply) → found, every backend at once, on its own thread |
@@ -45,7 +46,10 @@ The application keeps its message kinds and caps, its wording, its patience and 
    to find the other wins. A friend whose direct way is closed (both NATs vary) keeps trying
    ZeroTier instead of failing.
 5. `take()` hands over the `Connection`: the open path, the peer, the keys and the router lease. The
-   application runs its `ReliableLink` or its game session on it.
+   application runs its `ReliableLink` or its game session on it. A session in another process
+   (a game runner) cannot open a ZeroTier path, so the application keeps the path in a
+   `PathBridge` for the game: the runner sends to `local()` on loopback and the bridge carries it to
+   the peer and back. Only loopback senders reach the peer and only the peer reaches the runner.
 
 ## ZeroTier
 
@@ -68,7 +72,9 @@ already there connects about 2 s after pasting the code.
   A path opened earlier sends nothing until the node has its address; the handshake resends.
 - The network's configuration follows from its id, so the node caches none; it keeps its identity
   and its peers. The identity's secret stays in storage and is never logged.
-- ZeroTier binds every interface but loopback and sends nothing over it. A lab root is any node
+- ZeroTier binds each address to its own interface (`SO_BINDTODEVICE`) and none on loopback, so a
+  node takes only datagrams that arrive on the interface holding the address they are sent to; a
+  lab root needs its address on the link its peers reach it by. A lab root is any node
   whose identity is in a root set signed with `zts_util_sign_root_set` at a non-loopback address;
   `ZeroTierConfig::roots` takes that set instead of ZeroTier's public roots. `make_root` writes such
   an identity into a node's storage and returns the set.
