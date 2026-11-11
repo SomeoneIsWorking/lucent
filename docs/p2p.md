@@ -1,7 +1,7 @@
 # Peer-to-peer transport (`lucent::online`)
 
 Two players connect from a code, with no server of ours and nothing to install. The optional
-`lucent::online` target (`LUCENT_BUILD_ONLINE`, OpenSSL libcrypto) owns it, with the embedded ZeroTier
+`lucent::online` target (`LUCENT_BUILD_ONLINE`, OpenSSL libcrypto and libssl) owns it, with the embedded ZeroTier
 backend in `lucent::zerotier` (`LUCENT_BUILD_ZEROTIER`, libzt) for a game that opts in; namespace `lucent::p2p`;
 the core keeps the title-neutral socket pieces. The plan and its phases are
 `docs/plans/0006-online-framework.md`.
@@ -23,6 +23,7 @@ the core keeps the title-neutral socket pieces. The plan and its phases are
 | `Handshake`, `SessionKeys` | the one authenticated meeting over any path |
 | `ReliableLink` | ordered, capped messages over a sealed path |
 | `PathBridge` | a local process's datagrams over a path only this process can open |
+| `TlsStream`, `TlsTrust`, `system_roots_pem` | TLS 1.2+ over TCP (OpenSSL libssl) for the HTTP and WebSocket clients, checked against the system's roots and the name dialled |
 | `ZeroTierPaths` | the seam the connector reaches ZeroTier through, if the application gives it one |
 | `ZeroTierNode` (`lucent::zerotier`) | the process's one embedded libzt node on the application's ad-hoc network |
 | `Connector` | invite → (reply) → found, every backend at once, on its own thread |
@@ -99,14 +100,18 @@ addresses. ZeroTier (id 1): 40-bit node id, port.
 - Every wait has a limit and the connector stops on destruction.
 - A router mapping is asked for 120 s and renewed at half its lease; more than 600 s, or a permanent
   one, is refused.
+- A TLS stream verifies the peer's chain and the dialled name (SNI and host check) before it carries
+  a byte; the roots are OpenSSL's default paths on Linux, the CA folders on Android, the Keychain's
+  anchors on macOS and the ROOT store on Windows, plus any PEM the caller adds.
 
 ## Checking it
 
 `ctest --test-dir build/agent -R p2p` runs the owners through real loopback sockets: forged,
 replayed, wrong-secret and other-label handshakes are dropped, NAT-PMP and UPnP stand-ins grant,
 renew and take down a lease, a reliable link carries a 150 kB message in order and
-breaks on a size past its cap, a fake STUN server answers `gather_direct`, and two connectors meet
-from a pasted invite. `lucent_p2p_zerotier_tests` (Linux) runs in its own network namespace with a
+breaks on a size past its cap, a fake STUN server answers `gather_direct`, two connectors meet
+from a pasted invite, and a TLS stream reaches a loopback server whose certificate a test CA signs
+for one name while another name or an untrusted root is refused. `lucent_p2p_zerotier_tests` (Linux) runs in its own network namespace with a
 dummy interface: a lab root, a host, a friend and a stranger, one process each. Host and friend
 connect by a code over ZeroTier alone and trade a message on the reliable link; the stranger, who
 has the host's node and network but not the secret, gets nowhere. It prints how long each node took

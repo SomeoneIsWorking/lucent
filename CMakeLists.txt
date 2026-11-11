@@ -91,14 +91,27 @@ endif()
 option(LUCENT_BUILD_ONLINE "Build lucent's OpenSSL-backed peer-to-peer transport target"
        ${_lucent_build_online_default})
 if(LUCENT_BUILD_ONLINE)
-  find_package(OpenSSL 3 REQUIRED COMPONENTS Crypto)
+  find_package(OpenSSL 3 REQUIRED COMPONENTS Crypto SSL)
   add_library(lucent_online STATIC
     src/p2p/connector.cpp src/p2p/crypto.cpp src/p2p/descriptor.cpp src/p2p/direct.cpp
     src/p2p/handshake.cpp src/p2p/nat_pmp.cpp src/p2p/packet_seal.cpp src/p2p/path.cpp
     src/p2p/path_bridge.cpp
-    src/p2p/port_lease.cpp src/p2p/reliable_link.cpp src/p2p/stun.cpp src/p2p/upnp_igd.cpp)
+    src/p2p/port_lease.cpp src/p2p/reliable_link.cpp src/p2p/stun.cpp src/p2p/tls_stream.cpp
+    src/p2p/upnp_igd.cpp)
   add_library(lucent::online ALIAS lucent_online)
-  target_link_libraries(lucent_online PUBLIC lucent OpenSSL::Crypto)
+  target_link_libraries(lucent_online PUBLIC lucent OpenSSL::SSL OpenSSL::Crypto)
+  # Where the system keeps its TLS roots.
+  if(ANDROID)
+    target_sources(lucent_online PRIVATE src/p2p/tls_roots_android.cpp)
+  elseif(WIN32)
+    target_sources(lucent_online PRIVATE src/p2p/tls_roots_windows.cpp)
+    target_link_libraries(lucent_online PRIVATE crypt32)
+  elseif(APPLE)
+    target_sources(lucent_online PRIVATE src/p2p/tls_roots_macos.cpp)
+    target_link_libraries(lucent_online PRIVATE "-framework Security" "-framework CoreFoundation")
+  else()
+    target_sources(lucent_online PRIVATE src/p2p/tls_roots_default.cpp)
+  endif()
   target_include_directories(lucent_online PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>)
@@ -266,8 +279,9 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
 
     if(TARGET lucent_online)
       foreach(_lucent_p2p_test crypto descriptor handshake reliable_link stun direct connector
-        port_lease path_bridge)
+        port_lease path_bridge tls_stream)
         add_executable(lucent_p2p_${_lucent_p2p_test}_tests tests/p2p/test_${_lucent_p2p_test}.cpp)
+        target_include_directories(lucent_p2p_${_lucent_p2p_test}_tests PRIVATE src)
         target_link_libraries(lucent_p2p_${_lucent_p2p_test}_tests PRIVATE lucent::online)
         add_test(NAME lucent_p2p_${_lucent_p2p_test}_tests
           COMMAND lucent_p2p_${_lucent_p2p_test}_tests)

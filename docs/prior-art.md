@@ -18,5 +18,9 @@ What Lucent takes from others, under which licence, at which revision.
 A BSL revision is pinned only once its Change Date has passed; recheck `LICENSE.txt` of libzt and
 `ext/ZeroTierOne/LICENSE.txt` at every pin bump.
 
-Still to check before they are built: GGPO and its maintained forks (MIT) for rollback; Trystero's
-Nostr signalling and libsecp256k1 (MIT) for Nostr discovery; libdatachannel (MPL-2.0) for WebRTC.
+Trystero (MIT) signals WebRTC peers over Nostr with ephemeral kinds (20000–29999), which relays do
+not store, so a lobby list cannot be read back from them; it picks relays by NIP-66 health. We take
+the relay choice and nothing else: Lucent's lobbies are addressable kinds with a NIP-40 expiry.
+
+Still to check before they are built: GGPO and its maintained forks (MIT) for rollback;
+libsecp256k1 (MIT) for Nostr signatures; libdatachannel (MPL-2.0) for WebRTC.
