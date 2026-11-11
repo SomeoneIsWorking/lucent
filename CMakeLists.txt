@@ -91,12 +91,21 @@ option(LUCENT_BUILD_ONLINE "Build lucent's OpenSSL-backed peer-to-peer transport
        ${_lucent_build_online_default})
 if(LUCENT_BUILD_ONLINE)
   find_package(OpenSSL 3 REQUIRED COMPONENTS Crypto)
+  find_package(libzt CONFIG QUIET)
+  if(NOT libzt_FOUND)
+    message(FATAL_ERROR "lucent::online needs libzt from github.com/SomeoneIsWorking/libzt "
+      "(revision in docs/p2p.md) installed into a prefix on CMAKE_PREFIX_PATH: "
+      "cmake -S libzt -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_SHARED_LIB=OFF "
+      "-DBUILD_HOST_SELFTEST=OFF -DCMAKE_INSTALL_PREFIX=<prefix> && cmake --build build "
+      "&& cmake --install build")
+  endif()
   add_library(lucent_online STATIC
     src/p2p/connector.cpp src/p2p/crypto.cpp src/p2p/descriptor.cpp src/p2p/direct.cpp
     src/p2p/handshake.cpp src/p2p/nat_pmp.cpp src/p2p/packet_seal.cpp src/p2p/path.cpp
-    src/p2p/port_lease.cpp src/p2p/reliable_link.cpp src/p2p/stun.cpp src/p2p/upnp_igd.cpp)
+    src/p2p/port_lease.cpp src/p2p/reliable_link.cpp src/p2p/stun.cpp src/p2p/upnp_igd.cpp
+    src/p2p/zerotier.cpp)
   add_library(lucent::online ALIAS lucent_online)
-  target_link_libraries(lucent_online PUBLIC lucent OpenSSL::Crypto)
+  target_link_libraries(lucent_online PUBLIC lucent OpenSSL::Crypto PRIVATE libzt::zt)
   target_include_directories(lucent_online PUBLIC
     $<BUILD_INTERFACE:${CMAKE_CURRENT_SOURCE_DIR}/include>
     $<INSTALL_INTERFACE:include>)
@@ -244,6 +253,16 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
           COMMAND lucent_p2p_${_lucent_p2p_test}_tests)
         set_tests_properties(lucent_p2p_${_lucent_p2p_test}_tests PROPERTIES TIMEOUT 60)
       endforeach()
+      if(CMAKE_SYSTEM_NAME STREQUAL "Linux")
+        # ZeroTier sends nothing over loopback: a namespace of its own with a dummy interface.
+        add_executable(lucent_p2p_zerotier_tests tests/p2p/test_zerotier.cpp)
+        target_link_libraries(lucent_p2p_zerotier_tests PRIVATE lucent::online libzt::zt)
+        add_test(NAME lucent_p2p_zerotier_tests
+          COMMAND unshare --map-root-user --net sh -c
+            "ip link set lo up && ip link add lab0 type dummy && ip addr add 10.77.0.1/24 dev lab0 && ip link set lab0 up && exec \"$0\""
+            $<TARGET_FILE:lucent_p2p_zerotier_tests>)
+        set_tests_properties(lucent_p2p_zerotier_tests PROPERTIES TIMEOUT 180)
+      endif()
     endif()
 
     if(TARGET lucent_file_dialog)

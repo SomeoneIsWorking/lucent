@@ -1,7 +1,7 @@
 # Peer-to-peer transport (`lucent::online`)
 
 Two players connect from a code, with no server of ours and nothing to install. The optional
-`lucent::online` target (`LUCENT_BUILD_ONLINE`, OpenSSL libcrypto) owns it, namespace `lucent::p2p`;
+`lucent::online` target (`LUCENT_BUILD_ONLINE`, OpenSSL libcrypto and libzt) owns it, namespace `lucent::p2p`;
 the core keeps the title-neutral socket pieces. The plan and its phases are
 `docs/plans/0006-online-framework.md`.
 
@@ -21,7 +21,8 @@ the core keeps the title-neutral socket pieces. The plan and its phases are
 | `gather_direct`, `reachable_locals` | the direct backend's reach |
 | `Handshake`, `SessionKeys` | the one authenticated meeting over any path |
 | `ReliableLink` | ordered, capped messages over a sealed path |
-| `Connector` | invite → (reply) → found, each backend in turn, on its own thread |
+| `ZeroTierNode`, `zerotier_address` | the process's one embedded libzt node and a path per ad-hoc network |
+| `Connector` | invite → (reply) → found, every backend at once, on its own thread |
 
 The application keeps its message kinds and caps, its wording, its patience and its UI.
 
@@ -36,8 +37,33 @@ The application keeps its message kinds and caps, its wording, its patience and 
 3. `Handshake`: Hello and Welcome carry ephemeral X25519 keys sealed under HKDF(secret, label). The
    friend is connected on the Welcome; the host when the first datagram under the session keys
    opens. `SessionKeys::key(purpose, sender)` derives one key per purpose and sender.
-4. `take()` hands over the `Connection`: the open path, the peer, the keys and the router lease. The
+4. With a `ZeroTierNode` in the config, the host also opens a path on the ad-hoc network of a fresh
+   port (49152 and up) and puts its node id and that port in the invite; the friend joins that
+   network and dials the host's 6PLANE address there. Both handshakes run together and the first
+   to find the other wins. A friend whose direct way is closed (both NATs vary) keeps trying
+   ZeroTier instead of failing.
+5. `take()` hands over the `Connection`: the open path, the peer, the keys and the router lease. The
    application runs its `ReliableLink` or its game session on it.
+
+## ZeroTier
+
+libzt (fork `SomeoneIsWorking/libzt` at `7c8378c`, ZeroTierOne from `SomeoneIsWorking/ZeroTierOne`
+branch `lucent` at `588f476d`) is installed into a prefix outside the repo and found as
+`libzt::zt`; the configure error names the commands. One node per process: libzt refuses a second,
+and `zts_node_free` would end it for the process, so the node's destructor only stops it. The
+application starts it early (`ZeroTierNode::start`, identity kept in `ZeroTierConfig::storage`),
+since reaching the roots takes seconds, and hands the connector a pointer.
+
+- An ad-hoc network (`ff` + start port + end port) has no controller: it carries IPv6 and only UDP
+  and TCP to its port range, and each member's address is the 6PLANE one from network and node id.
+  It is open to anyone who picks the same port, so the handshake's secret is what keeps it ours.
+- `zts_addr_compute_6plane` fills only the address; the path sets the family and length itself, or
+  lwIP refuses the send as a bad argument.
+- A path sends nothing until the node has its address on the network, a few seconds after joining;
+  the handshake's resends cover it.
+- ZeroTier binds every interface but loopback and sends nothing over it. A lab root is any node
+  whose identity is in a root set signed with `zts_util_sign_root_set` at a non-loopback address;
+  `ZeroTierConfig::roots` takes that set instead of ZeroTier's public roots.
 
 ## Descriptor wire
 
@@ -64,5 +90,7 @@ addresses. ZeroTier (id 1): 40-bit node id, port.
 replayed, wrong-secret and other-label handshakes are dropped, NAT-PMP and UPnP stand-ins grant,
 renew and take down a lease, a reliable link carries a 150 kB message in order and
 breaks on a size past its cap, a fake STUN server answers `gather_direct`, and two connectors meet
-from a pasted invite. Across NATs it is proved in openSU's `tools.nat_lab` (rootless namespaces,
+from a pasted invite. `lucent_p2p_zerotier_tests` (Linux) runs in its own network namespace with a
+dummy interface: a lab root, a host and a friend, one process each, connect by a code over ZeroTier
+alone and trade a message on the reliable link. Across NATs it is proved in openSU's `tools.nat_lab` (rootless namespaces,
 `nft` NATs, a STUN server and a NAT-PMP/UPnP gateway).

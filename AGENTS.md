@@ -20,8 +20,8 @@ is dependency-free; optional `lucent::zip` adds zlib-backed archive extraction a
 - `network_interfaces` owns host IPv4 interface enumeration (address, netmask, broadcast,
   flags), the default gateway, and the rule for which broadcast addresses reach every LAN.
   `udp_socket` and `ipv4` own the IPv4 UDP socket and address type.
-- `online` (optional, `LUCENT_BUILD_ONLINE`, OpenSSL libcrypto; on by default only in Lucent's own
-  build) owns peer-to-peer transport in `lucent::p2p`: codes, NAT traversal, the authenticated
+- `online` (optional, `LUCENT_BUILD_ONLINE`, OpenSSL libcrypto and libzt; on by default only in
+  Lucent's own build) owns peer-to-peer transport in `lucent::p2p`: codes, NAT traversal, the authenticated
   handshake and the reliable link (`docs/p2p.md`, plan `docs/plans/0006-online-framework.md`).
   Consumers own message kinds and caps, wording, patience and UI.
 - `touch` owns platform-neutral contact-to-zone capture, multi-touch routing, and cancellation.
@@ -44,4 +44,6 @@ is dependency-free; optional `lucent::zip` adds zlib-backed archive extraction a
   content-identity matcher; game-specific archive layouts and validation do not belong in Lucent.
 
 Full quality check: `python3 tools/check_cpp_quality.py build`. Tests: `ctest --test-dir build`.
-Focused online tests: `ctest --test-dir build/agent -R p2p`.
+Focused online tests: `ctest --test-dir build/agent -R p2p`. The online target finds libzt (revision
+in `docs/p2p.md`) through `CMAKE_PREFIX_PATH`; the agent tree uses
+`~/.local/share/lucent-thirdparty/libzt-<revision>-<compiler>`. The ZeroTier test needs `unshare` and `ip`.

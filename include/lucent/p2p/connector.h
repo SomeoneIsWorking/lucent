@@ -15,10 +15,12 @@
 #include "lucent/p2p/handshake.h"
 #include "lucent/p2p/path.h"
 #include "lucent/p2p/port_lease.h"
+#include "lucent/p2p/zerotier.h"
 
 // Two people getting from a code to an authenticated path, on a thread of its own: this machine's
 // reach gathered, the code shown, then the other machine found by the handshake over each backend
-// in turn. The direct backend tries the host's addresses, then trades a reply code and punches.
+// at once. The direct backend tries the host's addresses, then trades a reply code and punches;
+// the ZeroTier one dials the host's node on the ad-hoc network its code names.
 // The owner reads `view`, passes on a pasted reply and takes the `Connection` once `Connected`.
 // Every wait has a limit.
 namespace lucent::p2p {
@@ -37,6 +39,8 @@ struct Patience {
 
 struct ConnectorConfig {
   DirectNetwork direct;
+  // The application's node, which outlives the connector; none leaves ZeroTier out.
+  const ZeroTierNode *zerotier = nullptr;
   Patience patience;
   CodePrefixes prefixes;
   // Separates this application's keys from another's ("opensu-online").
@@ -109,6 +113,8 @@ public:
 private:
   void run(const std::stop_token &stop);
   bool find(const std::stop_token &stop, std::unique_ptr<UdpPath> &path, DirectGathered &gathered);
+  std::unique_ptr<Path> open_zerotier(std::uint16_t port);
+  void connect(std::unique_ptr<Path> path, const Found &found, std::unique_ptr<PortLease> lease);
   void fail(Failure failure);
   void show(Step step);
   void offer(std::string code, bool closed, Step step);
