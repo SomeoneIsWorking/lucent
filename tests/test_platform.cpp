@@ -26,6 +26,17 @@ int main() {
     assert(fallback && *fallback == root / "home" / ".config" / "xmen2");
 #endif
 
+    std::filesystem::create_directories(root);
+    auto saved = root / "atomic.bin";
+    std::string write_error;
+    assert(lucent::platform::write_file_atomically(saved, std::string("first\0", 6), write_error));
+    assert(lucent::platform::write_file_atomically(saved, "second", write_error));
+    assert(std::filesystem::file_size(saved) == 6);
+    assert(!std::filesystem::exists(root / "atomic.bin.tmp"));
+    assert(!lucent::platform::write_file_atomically(root / "missing" / "atomic.bin", "x",
+                                                    write_error));
+    assert(!write_error.empty());
+
     const std::string data_root = (root / "data").string();
     const std::string cache_root = (root / "cache").string();
     const std::string run_root = (root / "run").string();

@@ -3,6 +3,7 @@
 
 #include <cstdint>
 #include <cstdlib>
+#include <fstream>
 #include <mutex>
 #include <string>
 #include <system_error>
@@ -11,6 +12,7 @@
 #ifdef _WIN32
 #include <windows.h>
 #else
+#include <fcntl.h>
 #include <sys/stat.h>
 #include <unistd.h>
 #endif
@@ -235,6 +237,54 @@ bool ensure_user_data_directory(const std::filesystem::path &directory, std::str
 #ifndef _WIN32
   if (::chmod(directory.c_str(), 0700) != 0) {
     error = "could not apply private directory permissions";
+    return false;
+  }
+#endif
+  return true;
+}
+
+bool write_file_atomically(const std::filesystem::path &path, std::string_view bytes,
+                           std::string &error) {
+  std::filesystem::path temporary = path;
+  temporary += ".tmp";
+#ifdef _WIN32
+  {
+    std::ofstream out(temporary, std::ios::binary | std::ios::trunc);
+    out.write(bytes.data(), static_cast<std::streamsize>(bytes.size()));
+    out.flush();
+    if (!out) {
+      error = "could not write " + temporary.string();
+      return false;
+    }
+  }
+  if (MoveFileExW(temporary.c_str(), path.c_str(),
+                  MOVEFILE_REPLACE_EXISTING | MOVEFILE_WRITE_THROUGH) == 0) {
+    error = "could not replace " + path.string();
+    return false;
+  }
+#else
+  int descriptor = ::open(temporary.c_str(), O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, 0600);
+  if (descriptor < 0) {
+    error = "could not create " + temporary.string();
+    return false;
+  }
+  std::size_t written = 0;
+  while (written < bytes.size()) {
+    ssize_t count = ::write(descriptor, bytes.data() + written, bytes.size() - written);
+    if (count < 0) {
+      ::close(descriptor);
+      error = "could not write " + temporary.string();
+      return false;
+    }
+    written += static_cast<std::size_t>(count);
+  }
+  bool synced = ::fsync(descriptor) == 0;
+  if (::close(descriptor) != 0 || !synced) {
+    error = "could not flush " + temporary.string();
+    return false;
+  }
+  if (::rename(temporary.c_str(), path.c_str()) != 0) {
+    error = "could not replace " + path.string();
     return false;
   }
 #endif

@@ -58,6 +58,11 @@ bool set_user_data_directory(std::filesystem::path directory);
 // Create the directory and parents, then apply private owner-only permissions where supported.
 bool ensure_user_data_directory(const std::filesystem::path &directory, std::string &error);
 
+// Replace path with bytes through a sibling temporary file renamed over it, so a reader finds the
+// old contents or the new ones, never a mix. The data is flushed to disk before the rename.
+bool write_file_atomically(const std::filesystem::path &path, std::string_view bytes,
+                           std::string &error);
+
 // Absolute path of the running executable; nullopt where the platform cannot say.
 std::optional<std::filesystem::path> executable_path();
 

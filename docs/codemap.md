@@ -106,6 +106,8 @@ tools/           non-mutating Python quality and structure gates
   cache, state (logs) and runtime directories from a supplied `Environment`:
   `resolve_data_directory`, `resolve_cache_directory`, `resolve_state_directory`,
   `resolve_runtime_directory` in the same header.
+- Replace a file atomically (temporary sibling, flush, rename): `lucent::platform::write_file_atomically`
+  in `include/lucent/platform.h`; `cvar::save_file` writes through it.
 - Extract a user-selected ZIP install safely: `lucent::zip::extract_unique_install` in
   `include/lucent/zip.h` searches direct entries and one nested ZIP through a consumer-owned content
   matcher, then atomically publishes the archive level containing the unique match. Use

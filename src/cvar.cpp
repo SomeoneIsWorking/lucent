@@ -3,6 +3,7 @@
 #include "lucent/config.h"
 #include "lucent/cvar_c.h"
 #include "lucent/log.h"
+#include "lucent/platform.h"
 #include "lucent/text.h"
 
 #include <cctype>
@@ -13,10 +14,6 @@
 #include <mutex>
 #include <string>
 #include <unordered_map>
-
-#ifdef _WIN32
-#include <windows.h>
-#endif
 
 namespace lucent::cvar {
 
@@ -285,35 +282,22 @@ void load_file(const char *path) {
 bool save_file(const char *path) {
   State &st = state();
   std::lock_guard lock(st.mutex);
-  const std::string tmp = std::string(path) + ".tmp";
-  {
-    std::ofstream out(tmp, std::ios::trunc);
-    if (!out) {
-      return false;
-    }
-    out << "# lucent::cvar runtime configuration. Layers: default < this file < "
-           "environment < --set.\n";
-    std::map<std::string, std::string> rows;
-    for (const auto &[name, var] : st.registered) {
-      if (var->persistable() && var->has(Layer::Value)) {
-        rows[name] = var->layer_string(Layer::Value);
-      }
-    }
-    for (const auto &[name, value] : st.preserved_unknowns) {
-      rows.emplace(name, value); // registered wins if somehow both
-    }
-    for (const auto &[name, value] : rows) {
-      out << name << " = " << value << '\n';
-    }
-    if (!out) {
-      return false;
+  std::string text = "# lucent::cvar runtime configuration. Layers: default < this file < "
+                     "environment < --set.\n";
+  std::map<std::string, std::string> rows;
+  for (const auto &[name, var] : st.registered) {
+    if (var->persistable() && var->has(Layer::Value)) {
+      rows[name] = var->layer_string(Layer::Value);
     }
   }
-#ifdef _WIN32
-  return MoveFileExA(tmp.c_str(), path, MOVEFILE_REPLACE_EXISTING) != 0;
-#else
-  return std::rename(tmp.c_str(), path) == 0;
-#endif
+  for (const auto &[name, value] : st.preserved_unknowns) {
+    rows.emplace(name, value); // registered wins if somehow both
+  }
+  for (const auto &[name, value] : rows) {
+    text.append(name).append(" = ").append(value).append(1, '\n');
+  }
+  std::string error;
+  return platform::write_file_atomically(path, text, error);
 }
 
 // The stable API accepts two string views for a name/value override token.
