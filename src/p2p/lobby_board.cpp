@@ -2,6 +2,7 @@
 
 #include "lucent/json.h"
 #include "lucent/p2p/crypto.h"
+#include "lucent/p2p/letter.h"
 #include "lucent/text.h"
 
 #include <algorithm>
@@ -44,6 +45,24 @@ std::optional<Signed> signed_body(const http::Request &request, std::string &why
   return Signed{*game->string(), text::hex(crypto::sha256(*secret)), std::move(*body)};
 }
 
+// The query's fields by name.
+std::map<std::string, std::string> query_of(const http::Request &request) {
+  std::vector<http::FormField> fields;
+  std::string error;
+  std::map<std::string, std::string> out;
+  if (http::parse_form_urlencoded(request.query(), fields, error)) {
+    for (http::FormField &field : fields) {
+      out[field.name] = std::move(field.value);
+    }
+  }
+  return out;
+}
+
+const std::string *text_member(const json::Value &value, std::string_view key) {
+  const json::Value *member = value.find(key);
+  return member != nullptr ? member->string() : nullptr;
+}
+
 } // namespace
 
 LobbyBoard::LobbyBoard(Clock now) : now_{now ? std::move(now) : Clock{unix_seconds}} {
@@ -60,7 +79,13 @@ http::Response LobbyBoard::handle(const http::Request &request) {
   if (path == "/v1/lobbies" && request.method == "GET") {
     return list(request);
   }
-  if (path == "/v1/lobbies" || path == "/v1/lobbies/withdraw") {
+  if (path == "/v1/letters" && request.method == "POST") {
+    return post(request);
+  }
+  if (path == "/v1/letters" && request.method == "GET") {
+    return letters(request);
+  }
+  if (path == "/v1/lobbies" || path == "/v1/lobbies/withdraw" || path == "/v1/letters") {
     return refused(405, "Method Not Allowed", "not a method this path takes");
   }
   return refused(404, "Not Found", "no such path");
@@ -72,6 +97,15 @@ void LobbyBoard::prune(std::int64_t now) {
       return entry.second.lobby.expires_at <= now;
     });
     game = game->second.empty() ? games_.erase(game) : std::next(game);
+  }
+  for (auto game = mail_.begin(); game != mail_.end();) {
+    for (auto box = game->second.begin(); box != game->second.end();) {
+      while (!box->second.empty() && box->second.front().posted_at + kLetterSeconds <= now) {
+        box->second.pop_front();
+      }
+      box = box->second.empty() ? game->second.erase(box) : std::next(box);
+    }
+    game = game->second.empty() ? mail_.erase(game) : std::next(game);
   }
 }
 
@@ -123,16 +157,9 @@ http::Response LobbyBoard::withdraw(const http::Request &request) {
 }
 
 http::Response LobbyBoard::list(const http::Request &request) {
-  std::vector<http::FormField> fields;
-  std::string error;
-  std::string game;
-  if (http::parse_form_urlencoded(request.query(), fields, error)) {
-    for (const http::FormField &field : fields) {
-      if (field.name == "game") {
-        game = field.value;
-      }
-    }
-  }
+  const std::map<std::string, std::string> query = query_of(request);
+  const auto found_game = query.find("game");
+  const std::string game = found_game != query.end() ? found_game->second : std::string{};
   if (!valid_game_name(game)) {
     return refused(400, "Bad Request", "a valid game is needed");
   }
@@ -150,6 +177,65 @@ http::Response LobbyBoard::list(const http::Request &request) {
   });
   for (std::size_t index = 0; index < open.size(); ++index) {
     out += (index == 0 ? "" : ",") + lobby_json(open[index]->lobby, true);
+  }
+  out += "]}";
+  return http::Response::json(200, "OK", std::move(out));
+}
+
+http::Response LobbyBoard::post(const http::Request &request) {
+  if (request.body.size() > kMaxLetterTextBytes + 512) {
+    return refused(413, "Content Too Large", "a letter is at most its limit");
+  }
+  std::string error;
+  const std::optional<json::Value> body = json::parse(request.body, error);
+  const std::string *game = body ? text_member(*body, "game") : nullptr;
+  const std::string *mailbox = body ? text_member(*body, "mailbox") : nullptr;
+  const std::string *letter = body ? text_member(*body, "letter") : nullptr;
+  if (game == nullptr || !valid_game_name(*game) || mailbox == nullptr ||
+      !valid_mailbox(*mailbox) || letter == nullptr || letter->empty() ||
+      letter->size() > kMaxLetterTextBytes) {
+    return refused(400, "Bad Request", "a valid game, mailbox and letter are needed");
+  }
+  const std::int64_t now = now_();
+  const std::lock_guard lock{mutex_};
+  prune(now);
+  Mailboxes &boxes = mail_[*game];
+  if (!boxes.contains(*mailbox) && boxes.size() >= kMaxBoardMailboxesPerGame) {
+    return refused(503, "Service Unavailable", "the game holds as many mailboxes as it takes");
+  }
+  std::deque<Letter> &box = boxes[*mailbox];
+  const auto last_minute = std::count_if(box.begin(), box.end(), [now](const Letter &kept) {
+    return kept.posted_at > now - 60;
+  });
+  if (static_cast<std::size_t>(last_minute) >= kMaxBoardLettersPerMinute) {
+    return refused(429, "Too Many Requests", "the mailbox takes no more letters this minute");
+  }
+  box.push_back(Letter{.text = *letter, .posted_at = now});
+  while (box.size() > kMaxLettersListed) {
+    box.pop_front();
+  }
+  return http::Response::json(200, "OK", "{}");
+}
+
+http::Response LobbyBoard::letters(const http::Request &request) {
+  const std::map<std::string, std::string> query = query_of(request);
+  const auto game = query.find("game");
+  const auto mailbox = query.find("mailbox");
+  if (game == query.end() || !valid_game_name(game->second) || mailbox == query.end() ||
+      !valid_mailbox(mailbox->second)) {
+    return refused(400, "Bad Request", "a valid game and mailbox are needed");
+  }
+  std::string out = "{\"letters\":[";
+  const std::lock_guard lock{mutex_};
+  prune(now_());
+  if (const auto boxes = mail_.find(game->second); boxes != mail_.end()) {
+    if (const auto box = boxes->second.find(mailbox->second); box != boxes->second.end()) {
+      bool first = true;
+      for (auto letter = box->second.rbegin(); letter != box->second.rend(); ++letter) {
+        out += (first ? "" : ",") + text::json_quote(letter->text);
+        first = false;
+      }
+    }
   }
   out += "]}";
   return http::Response::json(200, "OK", std::move(out));

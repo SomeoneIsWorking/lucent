@@ -63,6 +63,29 @@ void test_events() {
   assert(!nostr::sign(changed, bad));
 }
 
+// A kind 4 event signed elsewhere, from rust-nostr's tests (MIT, crates/nostr/src/event/mod.rs):
+// its id is the SHA-256 of NIP-01's canonical form and its signature checks out; a byte off fails.
+void test_foreign_event() {
+  const std::string text =
+      R"({"id":"2be17aa3031bdcb006f0fce80c146dea9c1c0268b0af2398bb673365c6444d45",)"
+      R"("pubkey":"f86c44a2de95d9149b51c6a29afeabba264c18e2fa7c49de93424a0c56947785",)"
+      R"("created_at":1640839235,"kind":4,)"
+      R"("tags":[["p","13adc511de7e1cfcf1c6b7f6365fb5a03442d7bcacf565ea57fa7770912c023d"]],)"
+      R"("content":"uRuvYr585B80L6rSJiHocw==?iv=oh6LVqdsYYol3JfFnXTbPA==",)"
+      R"("sig":"a5d9290ef9659083c490b303eb7ee41356d8778ff19f2f91776c8dc4443388a64ffcf336e61af4c25c05ac3ae952d1ced889ed655b67790891222aaa15b99fdd"})";
+  std::string error;
+  const std::optional<json::Value> value = json::parse(text, error);
+  assert(value);
+  const std::optional<nostr::Event> event = nostr::event_of(*value, error);
+  assert(event && nostr::verify(*event));
+  nostr::Event changed = *event;
+  changed.created_at += 1;
+  assert(!nostr::verify(changed));
+  nostr::Event resigned = *event;
+  resigned.sig[0] = resigned.sig[0] == 'a' ? 'b' : 'a';
+  assert(!nostr::verify(resigned));
+}
+
 void test_relay() {
   const lucent::p2p::crypto::Bytes secret = lucent::p2p::crypto::random_bytes(32);
   nostr::Event published = lobby_event();
@@ -72,6 +95,9 @@ void test_relay() {
   nostr::sign(refused, secret);
   nostr::Event forged = published;
   forged.content = "forged";
+  nostr::Event oversized = lobby_event();
+  oversized.content = published.content + "x";
+  nostr::sign(oversized, secret);
 
   lucent::test::WebSocketPeer peer;
   std::thread relay{[&] {
@@ -91,6 +117,7 @@ void test_relay() {
     const std::string sub = lucent::text::json_quote(*request[1].string());
     peer.frame(0x81, "[\"EVENT\",\"someone-else\"," + nostr::to_json(forged) + "]");
     peer.frame(0x81, "[\"EVENT\"," + sub + "," + nostr::to_json(forged) + "]");
+    peer.frame(0x81, "[\"EVENT\"," + sub + "," + nostr::to_json(oversized) + "]");
     peer.frame(0x81, "[\"EVENT\"," + sub + "," + nostr::to_json(published) + "]");
     peer.frame(0x81, "[\"EOSE\"," + sub + "]");
     const json::Array close = message_of(peer.read_frame().second);
@@ -105,7 +132,8 @@ void test_relay() {
   assert(accepted);
   assert(!client->publish(refused, error) && error.find("blocked: a test") != std::string::npos);
   error.clear();
-  const auto found = client->query(R"({"kinds":[30078],"#t":["lucent-test"]})", error);
+  const auto found =
+      client->query(R"({"kinds":[30078],"#t":["lucent-test"]})", published.content.size(), error);
   assert(found && found->size() == 1 && found->front().id == published.id);
   relay.join();
   assert(peer.ok());
@@ -117,6 +145,7 @@ void test_relay() {
 
 int main() {
   test_events();
+  test_foreign_event();
   test_relay();
   std::puts("Nostr events sign and verify, and a relay publishes, refuses and answers a query");
   return 0;

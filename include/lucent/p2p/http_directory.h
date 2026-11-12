@@ -25,6 +25,9 @@ public:
   bool publish(const Lobby &lobby, std::string &error) override;
   std::optional<std::vector<Lobby>> list(std::string &error) override;
   bool withdraw(const std::string &id, std::string &error) override;
+  bool post(const std::string &mailbox, const std::string &letter, std::string &error) override;
+  std::optional<std::vector<std::string>> letters(const std::string &mailbox,
+                                                  std::string &error) override;
 
 private:
   // One request to `path` under the base; the body of a 200, or nothing with `error`.

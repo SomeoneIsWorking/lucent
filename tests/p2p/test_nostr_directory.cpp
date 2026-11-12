@@ -1,8 +1,9 @@
 // A Nostr directory over two loopback relay stand-ins and one dead relay: a published lobby is
 // listed once with its fields, a withdrawn one is not, and forged, lapsed or other games' events
-// never show.
+// never show; letters reach their own mailbox once each, and an oversized one is dropped.
 #include "lucent/p2p/nostr_directory.h"
 
+#include "lucent/p2p/letter.h"
 #include "lucent/p2p/nostr.h"
 #include "lucent/text.h"
 #include "websocket_peer.h"
@@ -10,6 +11,7 @@
 #include <cassert>
 #include <chrono>
 #include <cstdio>
+#include <set>
 #include <string>
 #include <thread>
 #include <vector>
@@ -83,13 +85,28 @@ std::int64_t now() {
       .count();
 }
 
-nostr::Event signed_lobby(std::string topic, std::int64_t expires, std::string invite) {
+std::string contact() {
+  return std::string(64, 'c');
+}
+
+nostr::Event signed_letter(std::string topic, std::string content) {
+  nostr::Event event;
+  event.created_at = now();
+  event.kind = lucent::p2p::kNostrLobbyKind;
+  event.tags = {
+      {"d", "letter"}, {"t", std::move(topic)}, {"expiration", std::to_string(now() + 100)}};
+  event.content = std::move(content);
+  nostr::sign(event, lucent::p2p::crypto::random_bytes(32));
+  return event;
+}
+
+nostr::Event signed_lobby(std::string topic, std::int64_t expires, std::string title) {
   nostr::Event event;
   event.created_at = now();
   event.kind = lucent::p2p::kNostrLobbyKind;
   event.tags = {{"d", "other"}, {"t", std::move(topic)}, {"expiration", std::to_string(expires)}};
-  event.content = "{\"title\":\"x\",\"invite\":\"" + std::move(invite) +
-                  "\",\"players\":1,\"capacity\":2,\"version\":\"1\"}";
+  event.content = "{\"id\":\"other\",\"title\":\"" + std::move(title) + "\",\"contact\":\"" +
+                  contact() + "\",\"players\":1,\"capacity\":2,\"version\":\"1\"}";
   nostr::sign(event, lucent::p2p::crypto::random_bytes(32));
   return event;
 }
@@ -98,20 +115,25 @@ nostr::Event signed_lobby(std::string topic, std::int64_t expires, std::string i
 
 int main() {
   nostr::Event forged = signed_lobby("lucent-test", now() + 100, "FORGED");
-  forged.content = "{\"title\":\"x\",\"invite\":\"CHANGED\",\"players\":1,\"capacity\":2,"
-                   "\"version\":\"1\"}";
-  const std::vector<nostr::Event> extra{signed_lobby("lucent-other", now() + 100, "OTHER"),
-                                        signed_lobby("lucent-test", now() - 1, "LAPSED"), forged};
-  // publish, list, withdraw, list.
-  StandInRelay first{{}, 4};
-  StandInRelay second{extra, 4};
+  forged.content = "{\"id\":\"other\",\"title\":\"CHANGED\",\"contact\":\"" + contact() +
+                   "\",\"players\":1,\"capacity\":2,\"version\":\"1\"}";
+  const std::string mailbox(64, 'a');
+  const std::vector<nostr::Event> extra{
+      signed_lobby("lucent-other", now() + 100, "OTHER"),
+      signed_lobby("lucent-test", now() - 1, "LAPSED"), forged,
+      signed_letter("lucent-test-" + mailbox,
+                    std::string(lucent::p2p::kMaxLetterTextBytes + 1, '0')),
+      signed_letter("lucent-test-" + std::string(64, 'b'), "0909")};
+  // publish, list, withdraw, list, post, post, letters.
+  StandInRelay first{{}, 7};
+  StandInRelay second{extra, 7};
   lucent::p2p::NostrDirectory directory{
       "test", {first.url(), second.url(), "ws://127.0.0.1:1"}, lucent::p2p::TlsTrust{}};
 
   lucent::p2p::Lobby lobby;
   lobby.id = "room";
   lobby.title = "Bar\xC3\xA9's room";
-  lobby.invite = "INVITE-CODE";
+  lobby.contact = contact();
   lobby.players = 1;
   lobby.capacity = 4;
   lobby.version = "2.1";
@@ -122,7 +144,7 @@ int main() {
   const auto listed = directory.list(error);
   assert(listed && listed->size() == 1);
   const lucent::p2p::Lobby &found = listed->front();
-  assert(found.id == "room" && found.title == lobby.title && found.invite == "INVITE-CODE" &&
+  assert(found.id == "room" && found.title == lobby.title && found.contact == contact() &&
          found.players == 1 && found.capacity == 4 && found.version == "2.1" &&
          found.host.size() == 64 && found.expires_at > now());
 
@@ -130,6 +152,13 @@ int main() {
   assert(withdrawn);
   const auto after = directory.list(error);
   assert(after && after->empty());
+
+  assert(directory.post(mailbox, "0101", error) && directory.post(mailbox, "0202", error));
+  const auto letters = directory.letters(mailbox, error);
+  assert(letters && letters->size() == 2 &&
+         std::set<std::string>(letters->begin(), letters->end()) ==
+             (std::set<std::string>{"0101", "0202"}));
+  assert(!directory.post("AA", "0101", error));
 
   lucent::p2p::NostrDirectory nowhere{"test", {"ws://127.0.0.1:1"}, lucent::p2p::TlsTrust{}};
   assert(!nowhere.publish(lobby, error) && error.find("no relay took") != std::string::npos);

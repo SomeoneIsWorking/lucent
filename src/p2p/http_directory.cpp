@@ -2,6 +2,7 @@
 
 #include "lucent/http_client.h"
 #include "lucent/json.h"
+#include "lucent/p2p/letter.h"
 #include "lucent/text.h"
 
 #include <stdexcept>
@@ -64,7 +65,7 @@ std::optional<std::string> HttpDirectory::request(std::string_view method, const
 
 bool HttpDirectory::publish(const Lobby &lobby, std::string &error) {
   if (!publishable(lobby)) {
-    error = "a lobby needs an id and an invite, fields within their limits and seats that add up";
+    error = "a lobby needs an id and a contact, fields within their limits and seats that add up";
     return false;
   }
   return request("PUT", "/v1/lobbies",
@@ -99,6 +100,47 @@ std::optional<std::vector<Lobby>> HttpDirectory::list(std::string &error) {
   for (const json::Value &entry : *lobbies->array()) {
     if (std::optional<Lobby> lobby = lobby_of_json(entry)) {
       found.push_back(std::move(*lobby));
+    }
+  }
+  return found;
+}
+
+bool HttpDirectory::post(const std::string &mailbox, const std::string &letter,
+                         std::string &error) {
+  if (!valid_mailbox(mailbox) || letter.empty() || letter.size() > kMaxLetterTextBytes) {
+    error = "not a mailbox and a letter";
+    return false;
+  }
+  return request("POST", "/v1/letters",
+                 "{\"game\":" + text::json_quote(game_) + ",\"mailbox\":" +
+                     text::json_quote(mailbox) + ",\"letter\":" + text::json_quote(letter) + "}",
+                 error)
+      .has_value();
+}
+
+std::optional<std::vector<std::string>> HttpDirectory::letters(const std::string &mailbox,
+                                                               std::string &error) {
+  if (!valid_mailbox(mailbox)) {
+    error = "not a mailbox";
+    return std::nullopt;
+  }
+  const std::optional<std::string> body =
+      request("GET", "/v1/letters?game=" + game_ + "&mailbox=" + mailbox, std::nullopt, error);
+  if (!body) {
+    return std::nullopt;
+  }
+  const std::optional<json::Value> reply = json::parse(*body, error);
+  const json::Value *letters = reply ? reply->find("letters") : nullptr;
+  if (letters == nullptr || letters->array() == nullptr) {
+    error = "the lobby board's letters are not a list";
+    return std::nullopt;
+  }
+  std::vector<std::string> found;
+  for (const json::Value &entry : *letters->array()) {
+    const std::string *letter = entry.string();
+    if (letter != nullptr && !letter->empty() && letter->size() <= kMaxLetterTextBytes &&
+        found.size() < kMaxLettersListed) {
+      found.push_back(*letter);
     }
   }
   return found;

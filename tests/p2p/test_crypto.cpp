@@ -1,9 +1,11 @@
 #include "lucent/p2p/crypto.h"
 #include "lucent/p2p/packet_seal.h"
+#include "lucent/text.h"
 
 #include <cassert>
 #include <cstdio>
 #include <string>
+#include <string_view>
 
 namespace {
 
@@ -43,6 +45,38 @@ void hkdf_matches_rfc5869_case_1() {
   assert(okm[0] == 0x3c && okm[1] == 0xb2 && okm[41] == 0x65);
 }
 
+crypto::Bytes bytes(std::string_view hex) {
+  return lucent::text::from_hex(hex).value_or(crypto::Bytes{});
+}
+
+void x25519_matches_rfc7748_section_6_1() {
+  const crypto::KeyPair alice{
+      bytes("77076d0a7318a57d3c16c17251b26645df4c2f87ebc0992ab177fba51db92c2a")};
+  const crypto::KeyPair bob{
+      bytes("5dab087e624a8a4b79e17f8b83800ee66f3bb1292618b6fd1c2f8b27ff88e0eb")};
+  assert(lucent::text::hex(alice.public_key()) ==
+         "8520f0098930a754748b7ddcb43ef75a0dbf3a0d26381af4eba4a98eaa9b4e6a");
+  assert(lucent::text::hex(bob.public_key()) ==
+         "de9edb7d7b7dc1b4d35b61c2ece435373f8343c85b78674dadfc7e146f882b4f");
+  const auto shared = alice.agree(bob.public_key());
+  assert(shared && lucent::text::hex(*shared) ==
+                       "4a5d9d5ba4ce2de1728e3bf480350f25e07e21c947d19e3376f09b3c1e161742");
+}
+
+void seal_matches_rfc8439_section_2_8_2() {
+  const crypto::Bytes key =
+      bytes("808182838485868788898a8b8c8d8e8f909192939495969798999a9b9c9d9e9f");
+  const crypto::Bytes nonce = bytes("070000004041424344454647");
+  const crypto::Bytes aad = bytes("50515253c0c1c2c3c4c5c6c7");
+  const std::string plain = "Ladies and Gentlemen of the class of '99: If I could offer you only "
+                            "one tip for the future, sunscreen would be it.";
+  const std::string sealed = crypto::seal(key, nonce, crypto::text_of(aad), plain);
+  const std::string hex = lucent::text::hex(crypto::bytes_of(sealed));
+  assert(hex.starts_with("d31a8d34648e60db7b86afbc53ef7ec2a4aded51296e08fea9e2b5a736ee62d6"));
+  assert(hex.ends_with("1ae10b594f09e26a7e902ecbd0600691"));
+  assert(crypto::open(key, nonce, crypto::text_of(aad), sealed) == plain);
+}
+
 void opener_takes_each_counter_once() {
   const crypto::Bytes key = crypto::random_bytes(crypto::kKeyBytes);
   PacketSeal seal{key};
@@ -64,6 +98,8 @@ int main() {
   seal_opens_only_unchanged_under_its_key();
   x25519_agrees_and_refuses_bad_keys();
   hkdf_matches_rfc5869_case_1();
+  x25519_matches_rfc7748_section_6_1();
+  seal_matches_rfc8439_section_2_8_2();
   opener_takes_each_counter_once();
   std::puts("lucent p2p crypto tests passed");
   return 0;

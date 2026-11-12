@@ -8,6 +8,7 @@
 
 #include "lucent/p2p/crypto.h"
 #include "lucent/p2p/directory.h"
+#include "lucent/p2p/nostr.h"
 #include "lucent/p2p/tls_stream.h"
 
 namespace lucent::p2p {
@@ -22,7 +23,8 @@ inline constexpr int kNostrLobbyKind = 30078;
 
 // Lobbies as signed Nostr events on several relays at once: one per lobby (the `d` tag), the game
 // as a `t` tag, a NIP-40 expiry. Every call reaches the relays in parallel; one that answers is
-// enough. The signing key is this object's own, so a host is a fresh key each run.
+// enough. The signing key is this object's own, so a host is a fresh key each run. A letter is an
+// event of the same kind tagged `lucent-<game>-<mailbox>`, signed by a key of its own.
 class NostrDirectory final : public Directory {
 public:
   // Throws std::invalid_argument for a game name `valid_game_name` refuses.
@@ -36,9 +38,18 @@ public:
   bool publish(const Lobby &lobby, std::string &error) override;
   std::optional<std::vector<Lobby>> list(std::string &error) override;
   bool withdraw(const std::string &id, std::string &error) override;
+  bool post(const std::string &mailbox, const std::string &letter, std::string &error) override;
+  std::optional<std::vector<std::string>> letters(const std::string &mailbox,
+                                                  std::string &error) override;
 
 private:
   bool send(const Lobby &lobby, std::int64_t lifetime, std::string &error);
+  // Signs `event` with `secret` and puts it on every relay; `what` names it in errors and the log.
+  bool spread(nostr::Event event, const crypto::Bytes &secret, std::string_view what,
+              std::string &error);
+  // Each relay's stored events for `filter`; nothing when none answered.
+  std::optional<std::vector<std::vector<nostr::Event>>>
+  gather(const std::string &filter, std::size_t max_content, std::string &error);
 
   std::string topic_;
   std::vector<std::string> relays_;

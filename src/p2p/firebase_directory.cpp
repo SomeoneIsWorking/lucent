@@ -4,6 +4,7 @@
 #include "lucent/json.h"
 #include "lucent/log.h"
 #include "lucent/p2p/crypto.h"
+#include "lucent/p2p/letter.h"
 #include "lucent/text.h"
 
 #include <algorithm>
@@ -13,7 +14,7 @@
 namespace lucent::p2p {
 namespace {
 
-constexpr std::string_view kRoot = "/lucent/lobbies/";
+constexpr std::string_view kRoot = "/lucent/";
 constexpr std::size_t kMaxReplyBytes = std::size_t{2} * 1024 * 1024;
 constexpr int kMaxListedLobbies = 200;
 // Expired lobbies a publish deletes, so a project does not fill with dead ones.
@@ -178,8 +179,7 @@ std::optional<std::string> FirebaseDirectory::database(std::string_view method,
     return std::nullopt;
   }
   net::Url url = database_;
-  url.target +=
-      std::string{kRoot} + game_ + resource.path + ".json?auth=" + text::url_encode(id_token_);
+  url.target += std::string{kRoot} + resource.path + ".json?auth=" + text::url_encode(id_token_);
   if (project_.emulator_namespace) {
     url.target += "&ns=" + text::url_encode(*project_.emulator_namespace);
   }
@@ -195,6 +195,14 @@ std::optional<std::string> FirebaseDirectory::database(std::string_view method,
   return reply->body;
 }
 
+std::string FirebaseDirectory::lobbies() const {
+  return "lobbies/" + game_;
+}
+
+std::string FirebaseDirectory::mailbox_path(const std::string &mailbox) const {
+  return "letters/" + game_ + "/" + mailbox;
+}
+
 std::string FirebaseDirectory::key_of(const std::string &id) const {
   const crypto::Bytes hash = crypto::sha256(crypto::bytes_of(id));
   return user_ + "-" + text::hex(hash).substr(0, kKeyHashDigits);
@@ -202,7 +210,7 @@ std::string FirebaseDirectory::key_of(const std::string &id) const {
 
 bool FirebaseDirectory::publish(const Lobby &lobby, std::string &error) {
   if (!publishable(lobby)) {
-    error = "a lobby needs an id and an invite, fields within their limits and seats that add up";
+    error = "a lobby needs an id and a contact, fields within their limits and seats that add up";
     return false;
   }
   if (!signed_in(error)) {
@@ -212,19 +220,19 @@ bool FirebaseDirectory::publish(const Lobby &lobby, std::string &error) {
   Lobby listed = lobby;
   listed.host = user_;
   listed.expires_at = now + kLobbySeconds;
-  if (!database("PUT", {.path = "/" + key_of(lobby.id), .query = {}}, lobby_json(listed, true),
-                error)) {
+  if (!database("PUT", {.path = lobbies() + "/" + key_of(lobby.id), .query = {}},
+                lobby_json(listed, true), error)) {
     return false;
   }
-  sweep(now);
+  sweep(lobbies(), now);
   return true;
 }
 
-void FirebaseDirectory::sweep(std::int64_t now) {
+void FirebaseDirectory::sweep(const std::string &collection, std::int64_t now) {
   std::string error;
   const std::optional<std::string> body =
       database("GET",
-               {.path = {},
+               {.path = collection,
                 .query = "&orderBy=" + text::url_encode("\"expires_at\"") +
                          "&endAt=" + std::to_string(now - 1) +
                          "&limitToFirst=" + std::to_string(kSweptPerPublish)},
@@ -237,12 +245,15 @@ void FirebaseDirectory::sweep(std::int64_t now) {
   }
   if (!parsed || parsed->object() == nullptr) {
     log(Level::Warn, "lobby",
-        "no sweep of expired Firebase lobbies: " + (error.empty() ? "not a list" : error));
+        "no sweep of expired Firebase entries: " + (error.empty() ? "not a list" : error));
     return;
   }
   for (const auto &[key, entry] : *parsed->object()) {
-    if (!database("DELETE", {.path = "/" + key, .query = {}}, std::nullopt, error)) {
-      log(Level::Warn, "lobby", "an expired Firebase lobby stays: " + error);
+    std::string path = collection;
+    path += "/";
+    path += key;
+    if (!database("DELETE", {.path = std::move(path), .query = {}}, std::nullopt, error)) {
+      log(Level::Warn, "lobby", "an expired Firebase entry stays: " + error);
     }
   }
 }
@@ -251,7 +262,8 @@ bool FirebaseDirectory::withdraw(const std::string &id, std::string &error) {
   if (!signed_in(error)) {
     return false;
   }
-  return database("DELETE", {.path = "/" + key_of(id), .query = {}}, std::nullopt, error)
+  return database("DELETE", {.path = lobbies() + "/" + key_of(id), .query = {}}, std::nullopt,
+                  error)
       .has_value();
 }
 
@@ -259,7 +271,7 @@ std::optional<std::vector<Lobby>> FirebaseDirectory::list(std::string &error) {
   const std::int64_t now = unix_seconds();
   const std::optional<std::string> body =
       database("GET",
-               {.path = {},
+               {.path = lobbies(),
                 .query = "&orderBy=" + text::url_encode("\"expires_at\"") +
                          "&startAt=" + std::to_string(now + 1) +
                          "&limitToLast=" + std::to_string(kMaxListedLobbies)},
@@ -294,30 +306,114 @@ std::optional<std::vector<Lobby>> FirebaseDirectory::list(std::string &error) {
   return found;
 }
 
+bool FirebaseDirectory::post(const std::string &mailbox, const std::string &letter,
+                             std::string &error) {
+  if (!valid_mailbox(mailbox) || letter.empty() || letter.size() > kMaxLetterTextBytes) {
+    error = "not a mailbox and a letter";
+    return false;
+  }
+  if (!signed_in(error)) {
+    return false;
+  }
+  const std::int64_t now = unix_seconds();
+  const std::string key = user_ + "-" + text::hex(crypto::random_bytes(kKeyHashDigits / 2));
+  if (!database("PUT", {.path = mailbox_path(mailbox) + "/" + key, .query = {}},
+                "{\"letter\":" + text::json_quote(letter) +
+                    ",\"expires_at\":" + std::to_string(now + kLetterSeconds) + "}",
+                error)) {
+    return false;
+  }
+  sweep(mailbox_path(mailbox), now);
+  return true;
+}
+
+std::optional<std::vector<std::string>> FirebaseDirectory::letters(const std::string &mailbox,
+                                                                   std::string &error) {
+  if (!valid_mailbox(mailbox)) {
+    error = "not a mailbox";
+    return std::nullopt;
+  }
+  const std::int64_t now = unix_seconds();
+  const std::optional<std::string> body =
+      database("GET",
+               {.path = mailbox_path(mailbox),
+                .query = "&orderBy=" + text::url_encode("\"expires_at\"") +
+                         "&startAt=" + std::to_string(now + 1) +
+                         "&limitToLast=" + std::to_string(kMaxLettersListed)},
+               std::nullopt, error);
+  if (!body) {
+    return std::nullopt;
+  }
+  const std::optional<json::Value> parsed = json::parse(*body, error);
+  if (!parsed) {
+    return std::nullopt;
+  }
+  std::vector<std::pair<std::int64_t, std::string>> open;
+  if (parsed->object() != nullptr) {
+    for (const auto &[key, entry] : *parsed->object()) {
+      const std::string *letter = text_of(entry, "letter");
+      const std::optional<std::int64_t> expires = seconds_of(entry, "expires_at");
+      if (letter != nullptr && !letter->empty() && letter->size() <= kMaxLetterTextBytes &&
+          expires && *expires > now) {
+        open.emplace_back(*expires, *letter);
+      }
+    }
+  } else if (!parsed->is_null()) {
+    error = "the Firebase letters are not a list";
+    return std::nullopt;
+  }
+  std::sort(open.begin(), open.end(), [](const auto &left, const auto &right) {
+    return left.first > right.first;
+  });
+  std::vector<std::string> out;
+  out.reserve(open.size());
+  for (auto &[expires, letter] : open) {
+    out.push_back(std::move(letter));
+  }
+  return out;
+}
+
 std::string firebase_rules_json() {
   const auto text_field = [](std::size_t limit) {
     return "{\".validate\":\"newData.isString() && newData.val().length <= " +
            std::to_string(limit) + "\"}";
   };
+  const auto expiry = [](std::int64_t lifetime) {
+    return "{\".validate\":\"newData.isNumber() && newData.val() <= now / 1000 + " +
+           std::to_string(2 * lifetime) + "\"}";
+  };
   const std::string seats = "{\".validate\":\"newData.isNumber() && newData.val() >= 0 && "
                             "newData.val() <= " +
                             std::to_string(kMaxLobbyCapacity) + "\"}";
+  // Removing an entry that expired is anyone's; writing one is only its user's.
+  const std::string swept = "(!newData.exists() && data.child('expires_at').val() < now / 1000)";
   return std::string{"{\"rules\":{\"lucent\":{\"lobbies\":{\"$game\":{"} +
          "\".read\":\"auth != null\",\".indexOn\":[\"expires_at\"],\"$key\":{"
-         "\".write\":\"auth != null && ($key.beginsWith(auth.uid + '-') || (!newData.exists() && "
-         "data.child('expires_at').val() < now / 1000))\","
-         "\".validate\":\"newData.hasChildren(['id','invite','host','expires_at']) && "
+         "\".write\":\"auth != null && ($key.beginsWith(auth.uid + '-') || " +
+         swept +
+         ")\","
+         "\".validate\":\"newData.hasChildren(['id','contact','host','expires_at']) && "
          "$game.length <= 32\","
          "\"id\":" +
          text_field(kMaxLobbyIdBytes) + ",\"title\":" + text_field(kMaxLobbyTitleBytes) +
-         ",\"invite\":" + text_field(kMaxLobbyInviteBytes) +
+         ",\"contact\":{\".validate\":\"newData.isString() && newData.val().length == 64\"}" +
          ",\"version\":" + text_field(kMaxLobbyVersionBytes) + ",\"players\":" + seats +
          ",\"capacity\":" + seats +
          ",\"host\":{\".validate\":\"newData.val() === auth.uid\"},"
-         "\"expires_at\":{\".validate\":\"newData.isNumber() && newData.val() <= now / 1000 + " +
-         std::to_string(2 * kLobbySeconds) +
-         "\"},"
-         "\"$other\":{\".validate\":false}}}}}}}";
+         "\"expires_at\":" +
+         expiry(kLobbySeconds) +
+         ","
+         "\"$other\":{\".validate\":false}}}},"
+         "\"letters\":{\"$game\":{\"$mailbox\":{"
+         "\".read\":\"auth != null\",\".indexOn\":[\"expires_at\"],\"$key\":{"
+         "\".write\":\"auth != null && ((!data.exists() && $key.beginsWith(auth.uid + '-')) || " +
+         swept +
+         ")\","
+         "\".validate\":\"newData.hasChildren(['letter','expires_at']) && $game.length <= 32 && "
+         "$mailbox.length == 64\","
+         "\"letter\":" +
+         text_field(kMaxLetterTextBytes) + ",\"expires_at\":" + expiry(kLetterSeconds) +
+         ",\"$other\":{\".validate\":false}}}}}}}}";
 }
 
 } // namespace lucent::p2p

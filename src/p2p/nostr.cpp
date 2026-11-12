@@ -203,7 +203,8 @@ std::vector<Event> Relay::end_query(const std::string &subscription, std::vector
   return events;
 }
 
-std::optional<std::vector<Event>> Relay::query(std::string_view filter, std::string &error) {
+std::optional<std::vector<Event>> Relay::query(std::string_view filter, std::size_t max_content,
+                                               std::string &error) {
   const std::string subscription = "lucent-" + std::to_string(++subscriptions_);
   if (!socket_->send_text(
           "[\"REQ\"," + text::json_quote(subscription) + "," + std::string{filter} + "]", error)) {
@@ -237,7 +238,7 @@ std::optional<std::vector<Event>> Relay::query(std::string_view filter, std::str
     }
     std::string ignored;
     std::optional<Event> event = event_of((*message)[2], ignored);
-    if (!event || !verify(*event)) {
+    if (!event || event->content.size() > max_content || !verify(*event)) {
       ++unrelated;
       continue;
     }

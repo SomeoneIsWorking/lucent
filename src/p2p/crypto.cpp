@@ -168,18 +168,21 @@ struct KeyPair::Key {
   std::unique_ptr<EVP_PKEY, FreeKey> key;
 };
 
-KeyPair::KeyPair() : key_{std::make_unique<Key>()} {
-  const KeyContext context{EVP_PKEY_CTX_new_id(EVP_PKEY_X25519, nullptr)};
-  EVP_PKEY *made = nullptr;
-  if (!context || EVP_PKEY_keygen_init(context.get()) != 1 ||
-      EVP_PKEY_keygen(context.get(), &made) != 1) {
-    throw std::runtime_error{"X25519 key generation failed"};
+KeyPair::KeyPair() : KeyPair{random_bytes(kKeyBytes)} {
+}
+
+KeyPair::KeyPair(Bytes secret) : key_{std::make_unique<Key>()} {
+  if (secret.size() != kKeyBytes) {
+    wipe(secret);
+    throw std::invalid_argument{"an X25519 secret is 32 bytes"};
   }
-  key_->key.reset(made);
+  key_->key.reset(
+      EVP_PKEY_new_raw_private_key(EVP_PKEY_X25519, nullptr, secret.data(), secret.size()));
+  wipe(secret);
   std::size_t size = public_key_.size();
-  if (EVP_PKEY_get_raw_public_key(made, public_key_.data(), &size) != 1 ||
+  if (!key_->key || EVP_PKEY_get_raw_public_key(key_->key.get(), public_key_.data(), &size) != 1 ||
       size != public_key_.size()) {
-    throw std::runtime_error{"X25519 public key unavailable"};
+    throw std::runtime_error{"X25519 key unavailable"};
   }
 }
 

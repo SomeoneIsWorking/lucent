@@ -24,7 +24,9 @@ struct FirebaseProject {
 
 // Lobbies in a Firebase Realtime Database over REST, each player an anonymous Firebase user. A
 // lobby is /lucent/lobbies/<game>/<uid>-<lobby key>, written only by its user (the rules in
-// `firebase_rules_json`), listed by expiry, and swept by any player once expired.
+// `firebase_rules_json`), listed by expiry, and swept by any player once expired. A letter is
+// /lucent/letters/<game>/<mailbox>/<uid>-<random>, written once by its user and swept the same
+// way.
 class FirebaseDirectory final : public Directory {
 public:
   // Throws std::invalid_argument for a game name `valid_game_name` refuses or a URL that is not
@@ -39,6 +41,9 @@ public:
   bool publish(const Lobby &lobby, std::string &error) override;
   std::optional<std::vector<Lobby>> list(std::string &error) override;
   bool withdraw(const std::string &id, std::string &error) override;
+  bool post(const std::string &mailbox, const std::string &letter, std::string &error) override;
+  std::optional<std::vector<std::string>> letters(const std::string &mailbox,
+                                                  std::string &error) override;
 
   // This player's Firebase user id once signed in.
   const std::string &user() const noexcept {
@@ -50,7 +55,7 @@ private:
     int status = 0;
     std::string body;
   };
-  // A database location under the game's lobbies and the query after `auth`.
+  // A database location under /lucent/ and the query after `auth`.
   struct Resource {
     std::string path;
     std::string query;
@@ -65,7 +70,10 @@ private:
   std::optional<std::string> database(std::string_view method, const Resource &resource,
                                       const std::optional<std::string> &body, std::string &error);
   std::string key_of(const std::string &id) const;
-  void sweep(std::int64_t now);
+  std::string lobbies() const;
+  std::string mailbox_path(const std::string &mailbox) const;
+  // Deletes up to a few entries of `collection` that expired before `now`.
+  void sweep(const std::string &collection, std::int64_t now);
 
   std::string game_;
   FirebaseProject project_;

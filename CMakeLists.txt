@@ -100,8 +100,8 @@ if(LUCENT_BUILD_ONLINE)
   add_library(lucent_online STATIC
     src/p2p/connector.cpp src/p2p/crypto.cpp src/p2p/descriptor.cpp src/p2p/direct.cpp
     src/p2p/directory.cpp src/p2p/firebase_directory.cpp src/p2p/handshake.cpp
-    src/p2p/http_directory.cpp src/p2p/lobby_board.cpp src/p2p/nat_pmp.cpp src/p2p/nostr.cpp
-    src/p2p/nostr_directory.cpp
+    src/p2p/http_directory.cpp src/p2p/letter.cpp src/p2p/lobby_board.cpp src/p2p/lobby_seats.cpp
+    src/p2p/nat_pmp.cpp src/p2p/nostr.cpp src/p2p/nostr_directory.cpp src/p2p/nostr_relay.cpp
     src/p2p/packet_seal.cpp src/p2p/path.cpp src/p2p/path_bridge.cpp src/p2p/port_lease.cpp
     src/p2p/reliable_link.cpp src/p2p/schnorr.cpp src/p2p/stun.cpp src/p2p/tls_stream.cpp
     src/p2p/upnp_igd.cpp src/p2p/virtual_lan.cpp)
@@ -130,10 +130,15 @@ if(LUCENT_BUILD_ONLINE)
     target_compile_options(lucent_online PRIVATE -Wall -Wextra -Wpedantic)
   endif()
   set_target_properties(lucent_online PROPERTIES POSITION_INDEPENDENT_CODE ON EXPORT_NAME online)
-  # The self-hosted lobby list, for a server someone rents.
-  if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR AND NOT ANDROID)
+  # The self-hosted lobby list, for a server someone rents or a consumer's lab.
+  if(NOT ANDROID)
     add_executable(lucent_lobby_server src/p2p/lobby_server_main.cpp)
     target_link_libraries(lucent_lobby_server PRIVATE lucent::online)
+  endif()
+  # A lab's own relay, for labs with no internet; a consumer's lab depends on the target by name.
+  if(NOT ANDROID)
+    add_executable(lucent_nostr_relay src/p2p/nostr_relay_main.cpp)
+    target_link_libraries(lucent_nostr_relay PRIVATE lucent::online)
   endif()
 endif()
 
@@ -319,7 +324,7 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     if(TARGET lucent_online)
       foreach(_lucent_p2p_test crypto descriptor handshake reliable_link stun direct connector
         port_lease path_bridge schnorr tls_stream nostr nostr_directory lobby_board
-        firebase_directory virtual_lan)
+        firebase_directory virtual_lan letter lobby_seats nostr_relay)
         add_executable(lucent_p2p_${_lucent_p2p_test}_tests tests/p2p/test_${_lucent_p2p_test}.cpp)
         target_include_directories(lucent_p2p_${_lucent_p2p_test}_tests PRIVATE src tests)
         target_link_libraries(lucent_p2p_${_lucent_p2p_test}_tests PRIVATE lucent::online)

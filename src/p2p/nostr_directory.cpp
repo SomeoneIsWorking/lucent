@@ -2,6 +2,7 @@
 
 #include "lucent/json.h"
 #include "lucent/log.h"
+#include "lucent/p2p/letter.h"
 #include "lucent/p2p/nostr.h"
 #include "lucent/text.h"
 #include "lucent/worker.h"
@@ -10,6 +11,7 @@
 #include <charconv>
 #include <functional>
 #include <map>
+#include <set>
 #include <stdexcept>
 #include <utility>
 
@@ -19,6 +21,8 @@ namespace {
 // A withdrawn lobby is replaced by an empty one that lapses after this.
 constexpr std::int64_t kWithdrawnSeconds = 60;
 constexpr int kMaxListedLobbies = 200;
+// The longest content a lobby event has: its JSON with every field at its limit, escaped.
+constexpr std::size_t kMaxLobbyContentBytes = 4096;
 
 std::optional<std::int64_t> integer_of(std::string_view digits) {
   std::int64_t value = 0;
@@ -107,8 +111,13 @@ bool NostrDirectory::send(const Lobby &lobby, std::int64_t lifetime, std::string
   event.kind = kNostrLobbyKind;
   event.tags = {{"d", lobby.id}, {"t", topic_}, {"expiration", std::to_string(now + lifetime)}};
   event.content = lobby_json(lobby, false);
-  if (!nostr::sign(event, secret_)) {
-    error = "the lobby key does not sign";
+  return spread(std::move(event), secret_, "lobby", error);
+}
+
+bool NostrDirectory::spread(nostr::Event event, const crypto::Bytes &secret, std::string_view what,
+                            std::string &error) {
+  if (!nostr::sign(event, secret)) {
+    error = "the " + std::string{what} + " key does not sign";
     return false;
   }
   const std::vector<std::string> errors =
@@ -121,18 +130,19 @@ bool NostrDirectory::send(const Lobby &lobby, std::int64_t lifetime, std::string
       static_cast<std::size_t>(std::count(errors.begin(), errors.end(), std::string{}));
   const std::string failed = failures(relays_, errors);
   if (taken == 0) {
-    error = relays_.empty() ? "no relays" : "no relay took the lobby: " + failed;
+    error =
+        relays_.empty() ? "no relays" : "no relay took the " + std::string{what} + ": " + failed;
     return false;
   }
   lucent::log(Level::Info, "nostr",
               std::to_string(taken) + " of " + std::to_string(relays_.size()) +
-                  " relays took the lobby" + (failed.empty() ? "" : "; " + failed));
+                  " relays took the " + std::string{what} + (failed.empty() ? "" : "; " + failed));
   return true;
 }
 
 bool NostrDirectory::publish(const Lobby &lobby, std::string &error) {
   if (!publishable(lobby)) {
-    error = "a lobby needs an id and an invite, fields within their limits and seats that add up";
+    error = "a lobby needs an id and a contact, fields within their limits and seats that add up";
     return false;
   }
   return send(lobby, kLobbySeconds, error);
@@ -144,19 +154,15 @@ bool NostrDirectory::withdraw(const std::string &id, std::string &error) {
   return send(empty, kWithdrawnSeconds, error);
 }
 
-std::optional<std::vector<Lobby>> NostrDirectory::list(std::string &error) {
-  const std::int64_t now = unix_seconds();
-  const std::string filter = "{\"kinds\":[" + std::to_string(kNostrLobbyKind) + "],\"#t\":[" +
-                             text::json_quote(topic_) +
-                             "],\"since\":" + std::to_string(now - kLobbySeconds) +
-                             ",\"limit\":" + std::to_string(kMaxListedLobbies) + "}";
+std::optional<std::vector<std::vector<nostr::Event>>>
+NostrDirectory::gather(const std::string &filter, std::size_t max_content, std::string &error) {
   std::vector<std::vector<nostr::Event>> found(relays_.size());
   const std::vector<std::string> errors =
       each_relay(relays_, [&](std::size_t index, std::string &relay_error) {
         const std::unique_ptr<nostr::Relay> relay =
             nostr::Relay::connect(relays_[index], trust_, relay_error);
         std::optional<std::vector<nostr::Event>> events =
-            relay ? relay->query(filter, relay_error) : std::nullopt;
+            relay ? relay->query(filter, max_content, relay_error) : std::nullopt;
         if (events) {
           found[index] = std::move(*events);
         }
@@ -166,9 +172,23 @@ std::optional<std::vector<Lobby>> NostrDirectory::list(std::string &error) {
     error = relays_.empty() ? "no relays" : "no relay answered: " + failures(relays_, errors);
     return std::nullopt;
   }
+  return found;
+}
+
+std::optional<std::vector<Lobby>> NostrDirectory::list(std::string &error) {
+  const std::int64_t now = unix_seconds();
+  const std::string filter = "{\"kinds\":[" + std::to_string(kNostrLobbyKind) + "],\"#t\":[" +
+                             text::json_quote(topic_) +
+                             "],\"since\":" + std::to_string(now - kLobbySeconds) +
+                             ",\"limit\":" + std::to_string(kMaxListedLobbies) + "}";
+  const std::optional<std::vector<std::vector<nostr::Event>>> found =
+      gather(filter, kMaxLobbyContentBytes, error);
+  if (!found) {
+    return std::nullopt;
+  }
   // The newest event per host and lobby id decides, even when it withdraws the lobby.
   std::map<std::pair<std::string, std::string>, const nostr::Event *> newest;
-  for (const std::vector<nostr::Event> &events : found) {
+  for (const std::vector<nostr::Event> &events : *found) {
     for (const nostr::Event &event : events) {
       const std::optional<std::string_view> id = event.tag("d");
       if (event.kind != kNostrLobbyKind || event.tag("t") != topic_ || !id) {
@@ -195,6 +215,70 @@ std::optional<std::vector<Lobby>> NostrDirectory::list(std::string &error) {
     lobbies.push_back(std::move(lobby));
   }
   return lobbies;
+}
+
+bool NostrDirectory::post(const std::string &mailbox, const std::string &letter,
+                          std::string &error) {
+  if (!valid_mailbox(mailbox) || letter.empty() || letter.size() > kMaxLetterTextBytes) {
+    error = "not a mailbox and a letter";
+    return false;
+  }
+  const std::int64_t now = unix_seconds();
+  nostr::Event event;
+  event.created_at = now;
+  event.kind = kNostrLobbyKind;
+  event.tags = {{"d", text::hex(crypto::random_bytes(16))},
+                {"t", topic_ + "-" + mailbox},
+                {"expiration", std::to_string(now + kLetterSeconds)}};
+  event.content = letter;
+  crypto::Bytes secret = crypto::random_bytes(crypto::kKeyBytes);
+  const bool spread_out = spread(std::move(event), secret, "letter", error);
+  crypto::wipe(secret);
+  return spread_out;
+}
+
+std::optional<std::vector<std::string>> NostrDirectory::letters(const std::string &mailbox,
+                                                                std::string &error) {
+  if (!valid_mailbox(mailbox)) {
+    error = "not a mailbox";
+    return std::nullopt;
+  }
+  const std::int64_t now = unix_seconds();
+  const std::string tag = topic_ + "-" + mailbox;
+  const std::string filter = "{\"kinds\":[" + std::to_string(kNostrLobbyKind) + "],\"#t\":[" +
+                             text::json_quote(tag) +
+                             "],\"since\":" + std::to_string(now - kLetterSeconds) +
+                             ",\"limit\":" + std::to_string(kMaxLettersListed) + "}";
+  const std::optional<std::vector<std::vector<nostr::Event>>> found =
+      gather(filter, kMaxLetterTextBytes, error);
+  if (!found) {
+    return std::nullopt;
+  }
+  std::vector<std::pair<std::int64_t, std::string>> open;
+  std::set<std::string> seen;
+  for (const std::vector<nostr::Event> &events : *found) {
+    for (const nostr::Event &event : events) {
+      const std::optional<std::string_view> expiration = event.tag("expiration");
+      const std::optional<std::int64_t> expires =
+          expiration ? integer_of(*expiration) : std::nullopt;
+      if (event.kind != kNostrLobbyKind || event.tag("t") != tag || !expires || *expires <= now ||
+          event.content.empty() || !seen.insert(event.content).second) {
+        continue;
+      }
+      open.emplace_back(event.created_at, event.content);
+    }
+  }
+  std::stable_sort(open.begin(), open.end(), [](const auto &first, const auto &second) {
+    return first.first > second.first;
+  });
+  std::vector<std::string> out;
+  for (auto &[created, letter] : open) {
+    if (out.size() == kMaxLettersListed) {
+      break;
+    }
+    out.push_back(std::move(letter));
+  }
+  return out;
 }
 
 } // namespace lucent::p2p

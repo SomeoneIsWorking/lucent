@@ -1,10 +1,12 @@
 // A lobby board on a loopback server with a stepped clock, reached by two HTTP directories: a
 // published lobby is listed with its fields, only its own host withdraws it, it lapses unless
-// published again, and malformed requests are refused.
+// published again; letters reach their mailbox only, newest first, lapse, and are capped per
+// minute; malformed requests are refused.
 #include "lucent/p2p/lobby_board.h"
 
 #include "lucent/http_client.h"
 #include "lucent/p2p/http_directory.h"
+#include "lucent/p2p/letter.h"
 
 #include <atomic>
 #include <cassert>
@@ -39,14 +41,15 @@ int main() {
   lucent::p2p::HttpDirectory friend_{"test", base, {}};
   lucent::p2p::HttpDirectory other_game{"other", base, {}};
 
-  lucent::p2p::Lobby lobby{"room", "Bar\xC3\xA9's room", "INVITE", 1, 4, "2.1", {}, 0};
+  const std::string contact(64, 'c');
+  lucent::p2p::Lobby lobby{"room", "Bar\xC3\xA9's room", contact, 1, 4, "2.1", {}, 0};
   std::string error;
   const bool published = host.publish(lobby, error);
   assert(published);
   const auto listed = friend_.list(error);
   assert(listed && listed->size() == 1);
   const lucent::p2p::Lobby found = listed.value_or(std::vector<lucent::p2p::Lobby>{{}}).front();
-  assert(found.id == "room" && found.title == lobby.title && found.invite == "INVITE" &&
+  assert(found.id == "room" && found.title == lobby.title && found.contact == contact &&
          found.players == 1 && found.capacity == 4 && found.version == "2.1" &&
          found.host.size() == 64 && found.expires_at == clock + lucent::p2p::kLobbySeconds);
   assert(listed_count(other_game) == 0);
@@ -62,6 +65,27 @@ int main() {
   clock += 1;
   assert(listed_count(friend_) == 0);
 
+  const std::string mailbox(64, 'a');
+  const std::string elsewhere(64, 'b');
+  assert(friend_.post(mailbox, "0101", error) && friend_.post(mailbox, "0202", error));
+  assert(friend_.post(elsewhere, "0303", error));
+  const auto letters = host.letters(mailbox, error);
+  assert(letters && *letters == (std::vector<std::string>{"0202", "0101"}));
+  const auto other_letters = other_game.letters(mailbox, error);
+  assert(other_letters && other_letters->empty());
+  clock += lucent::p2p::kLetterSeconds;
+  const auto lapsed = host.letters(mailbox, error);
+  assert(lapsed && lapsed->empty());
+  for (std::size_t sent = 0; sent < lucent::p2p::kMaxBoardLettersPerMinute; ++sent) {
+    const bool posted = friend_.post(mailbox, "0404", error);
+    assert(posted);
+  }
+  assert(!friend_.post(mailbox, "0505", error) && error.find("429") != std::string::npos);
+  clock += 61;
+  assert(friend_.post(mailbox, "0606", error));
+  assert(!friend_.post("not-a-mailbox", "0707", error));
+  assert(!friend_.post(mailbox, std::string(lucent::p2p::kMaxLetterTextBytes + 1, '0'), error));
+
   lucent::http::FetchResult result;
   const auto ask = [&](std::string_view method, std::string_view target,
                        std::optional<std::string_view> body) {
@@ -73,6 +97,11 @@ int main() {
              R"({"game":"test","token":"zz","lobby":{"id":"a","title":"","invite":"x",)"
              R"("players":0,"capacity":1,"version":""}})") == 400);
   assert(ask("GET", "/v1/lobbies", std::nullopt) == 400);
+  assert(ask("POST", "/v1/letters", R"({"game":"test","mailbox":"AA","letter":"00"})") == 400);
+  assert(ask("POST", "/v1/letters", std::string(lucent::p2p::kMaxLetterTextBytes + 600, ' ')) ==
+         413);
+  assert(ask("GET", "/v1/letters?game=test", std::nullopt) == 400);
+  assert(ask("PUT", "/v1/letters", std::nullopt) == 405);
   assert(ask("GET", "/v1/lobbies?game=Bad%20Name", std::nullopt) == 400);
   assert(ask("DELETE", "/v1/lobbies", std::nullopt) == 405);
   assert(ask("GET", "/elsewhere", std::nullopt) == 404);

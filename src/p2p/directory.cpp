@@ -1,5 +1,6 @@
 #include "lucent/p2p/directory.h"
 
+#include "lucent/p2p/letter.h"
 #include "lucent/text.h"
 
 #include <algorithm>
@@ -45,7 +46,7 @@ bool valid_game_name(std::string_view game) noexcept {
 std::string lobby_json(const Lobby &lobby, bool listing) {
   std::string out = "{\"id\":" + text::json_quote(lobby.id) +
                     ",\"title\":" + text::json_quote(lobby.title) +
-                    ",\"invite\":" + text::json_quote(lobby.invite) +
+                    ",\"contact\":" + text::json_quote(lobby.contact) +
                     ",\"players\":" + std::to_string(lobby.players) +
                     ",\"capacity\":" + std::to_string(lobby.capacity) +
                     ",\"version\":" + text::json_quote(lobby.version);
@@ -59,8 +60,7 @@ std::string lobby_json(const Lobby &lobby, bool listing) {
 
 bool publishable(const Lobby &lobby) noexcept {
   return !lobby.id.empty() && lobby.id.size() <= kMaxLobbyIdBytes &&
-         lobby.title.size() <= kMaxLobbyTitleBytes && !lobby.invite.empty() &&
-         lobby.invite.size() <= kMaxLobbyInviteBytes &&
+         lobby.title.size() <= kMaxLobbyTitleBytes && valid_mailbox(lobby.contact) &&
          lobby.version.size() <= kMaxLobbyVersionBytes && lobby.players >= 0 &&
          lobby.capacity >= lobby.players && lobby.capacity <= kMaxLobbyCapacity;
 }
@@ -68,18 +68,18 @@ bool publishable(const Lobby &lobby) noexcept {
 std::optional<Lobby> lobby_of_json(const json::Value &value) {
   const std::string *id = text_member(value, "id");
   const std::string *title = text_member(value, "title");
-  const std::string *invite = text_member(value, "invite");
+  const std::string *contact = text_member(value, "contact");
   const std::string *version = text_member(value, "version");
   const std::optional<std::int64_t> players = integer_member(value, "players");
   const std::optional<std::int64_t> capacity = integer_member(value, "capacity");
-  if (id == nullptr || title == nullptr || invite == nullptr || version == nullptr || !players ||
+  if (id == nullptr || title == nullptr || contact == nullptr || version == nullptr || !players ||
       !capacity || *players < 0 || *capacity > kMaxLobbyCapacity) {
     return std::nullopt;
   }
   Lobby lobby;
   lobby.id = *id;
   lobby.title = *title;
-  lobby.invite = *invite;
+  lobby.contact = *contact;
   lobby.players = static_cast<int>(std::min<std::int64_t>(*players, kMaxLobbyCapacity + 1));
   lobby.capacity = static_cast<int>(*capacity);
   lobby.version = *version;

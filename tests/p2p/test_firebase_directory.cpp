@@ -1,7 +1,8 @@
 // Firebase directories against a loopback stand-in of the auth and database REST APIs, or with
 // `--emulator <database> <auth> <namespace>` against the Firebase Local Emulator Suite running
 // `firebase_rules_json()`: a lobby is listed with its fields, only its own player writes or
-// withdraws it, an expired one is not listed and is swept by the next publish, and an ID token is
+// withdraws it, an expired one is not listed and is swept by the next publish; letters reach
+// their mailbox, are written once by their own player and swept alike; and an ID token is
 // refreshed for the same user. `--rules` prints the database rules.
 #include "lucent/p2p/firebase_directory.h"
 
@@ -20,6 +21,7 @@
 #include <stdexcept>
 #include <string>
 #include <string_view>
+#include <vector>
 
 namespace {
 
@@ -99,19 +101,36 @@ private:
     return token;
   }
 
+  // Lobbies are /lucent/lobbies/<game>/<key>, letters /lucent/letters/<game>/<mailbox>/<key>,
+  // guarded as `firebase_rules_json` guards them.
   Response database(const Request &request) {
     const std::string_view path = request.path();
     const std::string_view query = request.query();
-    constexpr std::string_view root = "/lucent/lobbies/";
+    constexpr std::string_view root = "/lucent/";
     const auto token = users_of_.find(query_value(query, "auth").value_or(""));
     if (!path.starts_with(root) || !path.ends_with(".json") || token == users_of_.end()) {
       return Response::json(401, "Unauthorized", R"({"error":"Permission denied"})");
     }
-    const std::string_view rest = path.substr(root.size(), path.size() - root.size() - 5);
-    const std::size_t slash = rest.find('/');
-    std::map<std::string, std::string> &game = lobbies_[std::string{rest.substr(0, slash)}];
+    std::string_view rest = path.substr(root.size(), path.size() - root.size() - 5);
+    std::vector<std::string> parts;
+    while (!rest.empty()) {
+      const std::size_t slash = rest.find('/');
+      parts.emplace_back(rest.substr(0, slash));
+      rest = slash == std::string_view::npos ? std::string_view{} : rest.substr(slash + 1);
+    }
+    const bool letters = !parts.empty() && parts.front() == "letters";
+    const std::size_t depth = letters ? 3 : 2;
+    if (parts.empty() || (parts.front() != "lobbies" && !letters) ||
+        (parts.size() != depth && parts.size() != depth + 1)) {
+      return Response::json(401, "Unauthorized", R"({"error":"Permission denied"})");
+    }
+    std::string collection_name;
+    for (std::size_t index = 0; index < depth; ++index) {
+      collection_name += parts[index] + "/";
+    }
+    std::map<std::string, std::string> &collection = collections_[collection_name];
     const std::int64_t now = lucent::p2p::unix_seconds();
-    if (slash == std::string_view::npos) {
+    if (parts.size() == depth) {
       if (request.method != "GET" || query_value(query, "orderBy") != "\"expires_at\"") {
         return Response::json(400, "Bad Request", R"({"error":"Index not defined"})");
       }
@@ -119,7 +138,7 @@ private:
       const std::int64_t until =
           number(query_value(query, "endAt").value_or("")).value_or(INT64_MAX);
       std::string out;
-      for (const auto &[key, text] : game) {
+      for (const auto &[key, text] : collection) {
         const std::int64_t expires = expiry_of(text);
         if (expires >= from && expires <= until) {
           out += (out.empty() ? "{" : ",") + lucent::text::json_quote(key) + ":" + text;
@@ -127,28 +146,31 @@ private:
       }
       return Response::json(200, "OK", out.empty() ? "null" : out + "}");
     }
-    const std::string key{rest.substr(slash + 1)};
+    const std::string &key = parts.back();
     const bool own = key.starts_with(token->second + "-");
-    const auto stored = game.find(key);
+    const auto stored = collection.find(key);
     if (request.method == "GET") {
-      return Response::json(200, "OK", stored != game.end() ? stored->second : "null");
+      return Response::json(200, "OK", stored != collection.end() ? stored->second : "null");
     }
     if (request.method == "DELETE") {
-      const bool expired = stored != game.end() && expiry_of(stored->second) < now;
-      if (!own && !expired && stored != game.end()) {
+      const bool expired = stored != collection.end() && expiry_of(stored->second) < now;
+      if (!own && !expired && stored != collection.end()) {
         return Response::json(401, "Unauthorized", R"({"error":"Permission denied"})");
       }
-      game.erase(key);
+      collection.erase(key);
       return Response::json(200, "OK", "null");
     }
     std::string error;
     const std::optional<lucent::json::Value> body = lucent::json::parse(request.body, error);
     const lucent::json::Value *host = body ? body->find("host") : nullptr;
-    if (request.method != "PUT" || !own || host == nullptr || host->string() == nullptr ||
-        *host->string() != token->second) {
+    const bool allowed =
+        letters ? own && stored == collection.end() && body && body->find("letter") != nullptr
+                : own && host != nullptr && host->string() != nullptr &&
+                      *host->string() == token->second;
+    if (request.method != "PUT" || !allowed) {
       return Response::json(401, "Unauthorized", R"({"error":"Permission denied"})");
     }
-    game[key] = request.body;
+    collection[key] = request.body;
     return Response::json(200, "OK", request.body);
   }
 
@@ -157,7 +179,7 @@ private:
   int tokens_ = 0;
   int refreshes_ = 0;
   std::map<std::string, std::string> users_of_;
-  std::map<std::string, std::map<std::string, std::string>> lobbies_;
+  std::map<std::string, std::map<std::string, std::string>> collections_;
 };
 
 struct Target {
@@ -198,9 +220,10 @@ std::pair<std::string, std::string> sign_up(const Target &target) {
   return {*reply->find("localId")->string(), *reply->find("idToken")->string()};
 }
 
-std::string lobby_url(const Target &target, const std::string &key, const std::string &token) {
-  std::string url = target.project.database + "/lucent/lobbies/test/" + key +
-                    ".json?auth=" + lucent::text::url_encode(token);
+// The REST URL of `path` under /lucent/.
+std::string entry_url(const Target &target, const std::string &path, const std::string &token) {
+  std::string url =
+      target.project.database + "/lucent/" + path + ".json?auth=" + lucent::text::url_encode(token);
   if (target.project.emulator_namespace) {
     url += "&ns=" + *target.project.emulator_namespace;
   }
@@ -220,7 +243,8 @@ void run(const Target &target) {
   lucent::p2p::FirebaseDirectory host{"test", target.project, {}};
   lucent::p2p::FirebaseDirectory friend_{"test", target.project, {}};
   lucent::p2p::FirebaseDirectory other_game{"other", target.project, {}};
-  const lucent::p2p::Lobby lobby{"room/1", "Bar\xC3\xA9's room", "INVITE", 1, 4, "2.1", {}, 0};
+  const std::string contact(64, 'c');
+  const lucent::p2p::Lobby lobby{"room/1", "Bar\xC3\xA9's room", contact, 1, 4, "2.1", {}, 0};
   std::string error;
   const bool published = host.publish(lobby, error);
   if (!published) {
@@ -231,7 +255,7 @@ void run(const Target &target) {
   assert(listed && listed->size() == 1);
   const lucent::p2p::Lobby found = listed.value_or(std::vector<lucent::p2p::Lobby>{{}}).front();
   const std::int64_t now = lucent::p2p::unix_seconds();
-  assert(found.id == "room/1" && found.title == lobby.title && found.invite == "INVITE" &&
+  assert(found.id == "room/1" && found.title == lobby.title && found.contact == contact &&
          found.players == 1 && found.capacity == 4 && found.version == "2.1" &&
          found.host == host.user() && found.expires_at > now &&
          found.expires_at <= now + lucent::p2p::kLobbySeconds);
@@ -243,7 +267,8 @@ void run(const Target &target) {
   const auto [intruder, intruder_token] = sign_up(target);
   std::string forged = lucent::p2p::lobby_json(found, true);
   const std::string host_key = host.user() + "-" + "00000000000000000000000000000000";
-  assert(raw(lobby_url(target, host_key, intruder_token), "PUT", forged).status != 200);
+  assert(raw(entry_url(target, "lobbies/test/" + host_key, intruder_token), "PUT", forged).status !=
+         200);
 
   const bool withdrawn = host.withdraw("room/1", error);
   assert(withdrawn && listed_count(friend_) == 0);
@@ -253,14 +278,49 @@ void run(const Target &target) {
   stale.host = intruder;
   stale.expires_at = now - 10;
   const std::string stale_key = intruder + "-stale";
-  const auto put = raw(lobby_url(target, stale_key, intruder_token), "PUT",
+  const auto put = raw(entry_url(target, "lobbies/test/" + stale_key, intruder_token), "PUT",
                        lucent::p2p::lobby_json(stale, true));
   assert(put.status == 200);
   assert(listed_count(friend_) == 0);
   assert(host.publish(lobby, error));
-  assert(raw(lobby_url(target, stale_key, intruder_token), "GET", std::nullopt).body == "null");
+  assert(raw(entry_url(target, "lobbies/test/" + stale_key, intruder_token), "GET", std::nullopt)
+             .body == "null");
   assert(listed_count(friend_) == 1);
   assert(host.withdraw("room/1", error));
+
+  // Letters reach their own mailbox; each is written once, by its own player; an expired one is
+  // not listed and the next post to that mailbox sweeps it.
+  const std::string mailbox(64, 'a');
+  const bool posted = friend_.post(mailbox, "0101", error);
+  if (!posted) {
+    std::fprintf(stderr, "post failed: %s\n", error.c_str());
+  }
+  assert(posted && friend_.post(mailbox, "0202", error));
+  const auto letters = host.letters(mailbox, error);
+  assert(letters && letters->size() == 2);
+  const auto elsewhere = host.letters(std::string(64, 'b'), error);
+  assert(elsewhere && elsewhere->empty());
+  const std::string letter_path = "letters/test/" + mailbox + "/";
+  const std::string body = R"({"letter":"0303","expires_at":)" + std::to_string(now + 60) + "}";
+  assert(raw(entry_url(target, letter_path + friend_.user() + "-x", intruder_token), "PUT", body)
+             .status != 200);
+  assert(
+      raw(entry_url(target, letter_path + intruder + "-x", intruder_token), "PUT", body).status ==
+      200);
+  assert(
+      raw(entry_url(target, letter_path + intruder + "-x", intruder_token), "PUT", body).status !=
+      200);
+  const std::string old = R"({"letter":"0404","expires_at":)" + std::to_string(now - 10) + "}";
+  assert(
+      raw(entry_url(target, letter_path + intruder + "-old", intruder_token), "PUT", old).status ==
+      200);
+  const auto fresh = host.letters(mailbox, error);
+  assert(fresh && fresh->size() == 3);
+  assert(friend_.post(mailbox, "0505", error));
+  assert(
+      raw(entry_url(target, letter_path + intruder + "-old", intruder_token), "GET", std::nullopt)
+          .body == "null");
+  assert(!friend_.post("AA", "0101", error));
 
   bool thrown = false;
   try {
@@ -289,7 +349,7 @@ int main(int argc, char **argv) {
     target.project.emulator_namespace = argv[4];
     target.auth_base = argv[3];
     run(target);
-    std::puts("the Firebase emulator lists, guards, withdraws and sweeps lobbies");
+    std::puts("the Firebase emulator lists, guards, withdraws and sweeps lobbies and letters");
     return 0;
   }
   StandIn stand_in;
@@ -309,6 +369,7 @@ int main(int argc, char **argv) {
   // Each directory's first token is short, so its next request refreshed it for the same user.
   assert(stand_in.refreshes() >= 2);
   std::puts(
-      "Firebase directories list, guard, withdraw and sweep lobbies, refreshing their tokens");
+      "Firebase directories list, guard, withdraw and sweep lobbies and letters, refreshing their "
+      "tokens");
   return 0;
 }

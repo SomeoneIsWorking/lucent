@@ -25,9 +25,12 @@ the core keeps the title-neutral socket pieces. The plan and its phases are
 | `PathBridge` | a local process's datagrams over a path only this process can open |
 | `VirtualLan` | a LAN game's UDP to and from up to 16 friends, each shown at one 10.254.0.x address, sealed over its own connection |
 | `nostr::Event`, `nostr::Relay` | NIP-01 events (canonical form, id, BIP-340 signature) and one ws/wss relay: publish to OK, query to EOSE, forged events dropped |
-| `Directory`, `Lobby` | where a game lists open lobbies; it only carries the invite a host would share |
+| `Directory`, `Lobby` | where a game lists open lobbies (a contact key, never an invite or an address) and keeps mailboxes of sealed letters |
+| `write_letter`, `read_letter` | a short message sealed from one X25519 key to another for one purpose |
+| `LobbyHost`, `LobbyGuest` | a seat asked for and given through a directory: the ask sealed to the lobby's contact, the invite sealed back to the asker |
 | `LobbyBoard`, `HttpDirectory`, `lucent_lobby_server` | the self-hosted lobby list: the board as a `lucent::http::Server` handler, its client, and the executable that serves it |
 | `FirebaseDirectory`, `firebase_rules_json` | lobbies in a Firebase Realtime Database over REST, each player an anonymous user, and the rules that guard them |
+| `nostr::RelayStore`, `lucent_nostr_relay` | a lab's own relay: NIP-01 EVENT and REQ, every event's id and signature checked, addressable replace, NIP-40 expiry |
 | `NostrDirectory` | lobbies as NIP-78 addressable events (`d` per lobby, `t` = `lucent-<game>`, NIP-40 expiry) on every relay at once |
 | `TlsStream`, `TlsTrust`, `system_roots_pem`, `connect_stream` | TLS 1.2+ over TCP (OpenSSL libssl) for the HTTP and WebSocket clients, checked against the system's roots and the name dialled; `connect_stream` picks TLS or TCP from a `net::Url` |
 | `ZeroTierPaths` | the seam the connector reaches ZeroTier through, if the application gives it one |
@@ -70,30 +73,67 @@ The application keeps its message kinds and caps, its wording, its patience and 
 
 ## Discovery
 
-A host with an invite may list it. `NostrDirectory` signs each lobby with a key of its own (fresh
-each run) as kind 30078 with tags `d` (the lobby id), `t` (`lucent-<game>`) and `expiration` (now +
-300 s); a republish replaces it, so the host publishes again inside that window while the lobby is
-open. Withdrawing publishes the same `d` with no invite and a 60 s expiry. `list` asks every relay
-for the game's `t` since 300 s ago, keeps the newest event per host and id, and drops lobbies that
-are withdrawn, lapsed, malformed or fail their id or signature. Every call reaches the relays on
-threads at once and one relay that answers is enough; the log line names the ones that did not.
-`kDefaultNostrRelays` are relays shown to store and return such an event; an application can pass
-its own. Nothing about a lobby is trusted beyond its invite: a code from a stranger only connects
-to that stranger. `Lobby` fields and their limits, `publishable` and the JSON form
-(`lobby_json`, `lobby_of_json`), `kLobbySeconds` (300) and `unix_seconds` are one codec in
-`directory.h` for every directory.
+A listing is public, so it holds no invite and no address: only the lobby's id, its typed title,
+seats, the game version and a contact, the mailbox of an X25519 key the host made for this
+listing. Seats go through letters:
+
+1. `LobbyHost` makes the contact key, lists the lobby and publishes it again a third of
+   `kLobbySeconds` (300 s) after each publish, so a crashed host's lobby is gone within 300 s.
+2. A player who picks it makes `LobbyGuest`, with a key of its own, and posts an ask (the lobby id)
+   to the contact's mailbox.
+3. `LobbyHost::asks` reads the mailbox and opens each new letter: at most `kMaxAsksPerMinute` (8)
+   asks a minute, each asker's key once; letters past `kMaxLetterTextBytes` are dropped before any
+   decoding or crypto. The application answers each with its own invite, or "full".
+4. The answer is sealed to the asker's key and posted to its mailbox; `LobbyGuest::answer` takes it
+   only from the contact key, and the player connects by that invite as by a pasted code.
+
+Only someone who asks learns the invite, and so the host's addresses: a public lobby's address is
+public to anyone who asks, and the application says so before listing. Withdrawing takes the
+listing down; listing again makes a new `LobbyHost`, so a new contact.
+
+A letter (`letter.h`) is hex of version 1, the sender's public key, a 12-byte random nonce and
+ChaCha20-Poly1305 of the text. The key is HKDF-SHA256 of the two keys' X25519 secret, salted with
+the nonce, with info `lucent letter v1\n<ask|answer>\n<sender><recipient>`; the version and both
+keys are the associated data. An ask does not open as an answer, and nobody but the two key holders
+opens either. A letter holds at most 3072 bytes of text and lapses after `kLetterSeconds` (120 s)
+in every directory; a mailbox lists at most `kMaxLettersListed` (64).
+
+`NostrDirectory` signs each lobby with a key of its own (fresh each run) as kind 30078 with tags `d`
+(the lobby id), `t` (`lucent-<game>`) and `expiration` (now + 300 s); a republish replaces it.
+Withdrawing publishes the same `d` with no contact and a 60 s expiry. `list` asks every relay for
+the game's `t` since 300 s ago, keeps the newest event per host and id, and drops lobbies that are
+withdrawn, lapsed, malformed or fail their id or signature. A letter is a kind 30078 event with a
+random `d`, `t` = `lucent-<game>-<mailbox>` and a 120 s expiry, signed by a key made for that
+letter alone. Events longer than their kind's limit are dropped before their id or signature is
+checked. Every call reaches the relays on threads at once and one relay that answers is enough;
+the log line names the ones that did not. `kDefaultNostrRelays` are relays shown to store and
+return such an event; an application can pass its own. `Lobby` fields and their limits,
+`publishable` and the JSON form (`lobby_json`, `lobby_of_json`), `kLobbySeconds` and
+`unix_seconds` are one codec in `directory.h` for every directory.
+
+`lucent_nostr_relay [--port N] [--lan]` (default 7447, loopback unless `--lan`) is a relay for a
+lab with no internet, like `lucent_zerotier_root`: it refuses an event whose id is not the SHA-256
+of its canonical form or whose signature does not check out, one past its expiry and one over
+64 kB, keeps the newest addressable event per author, kind and `d`, and answers REQ filters with
+`ids`, `authors`, `kinds`, `#<letter>`, `since`, `until` and `limit`, newest first. Both it and
+`lucent_lobby_server` are targets in a consumer's build too, so a game's lab builds them in its own
+tree.
 
 `lucent_lobby_server [--port N]` (default 8077) serves a `LobbyBoard` on every IPv4 interface until
 `StopSignals` hears a stop request; TLS, when wanted, is a reverse proxy in front. A game points an `HttpDirectory`
 at its base URL instead of, or beside, the relays. The board keys a lobby by its host, the SHA-256
 of a token only that host's directory holds, so nobody else replaces or withdraws it; a lobby lapses
 300 s after its last publish, and the board holds at most 500 lobbies per game and 256 games.
+A mailbox takes 16 letters a minute (429 past that) and keeps its newest 64; a game holds at most
+4096 mailboxes.
 
 | Request | Body | Answer |
 |---|---|---|
-| `PUT /v1/lobbies` | `{"game","token","lobby":{id,title,invite,players,capacity,version}}` | `{"expires_at"}` |
+| `PUT /v1/lobbies` | `{"game","token","lobby":{id,title,contact,players,capacity,version}}` | `{"expires_at"}` |
 | `POST /v1/lobbies/withdraw` | `{"game","token","id"}` | `{}` |
 | `GET /v1/lobbies?game=G` | | `{"lobbies":[{...,"host","expires_at"}]}`, newest first |
+| `POST /v1/letters` | `{"game","mailbox","letter"}` | `{}` |
+| `GET /v1/letters?game=G&mailbox=M` | | `{"letters":[...]}`, newest first |
 
 `FirebaseDirectory` keeps lobbies in a Firebase Realtime Database on the free Spark plan, over REST
 with no SDK. Each player signs in anonymously (Identity Toolkit `accounts:signUp`, the token
@@ -102,7 +142,11 @@ service refreshing the ID token a minute before it lapses) and writes
 from `firebase_rules_json()` let only that user write the key, any signed-in player delete an
 expired one, cap every field and the expiry at 600 s ahead, and index `expires_at`. `list` asks
 for lobbies expiring after now (`orderBy="expires_at"&startAt`, at most 200) and keeps only those
-whose key starts with their `host`; each publish deletes up to 8 expired lobbies. `FirebaseProject`
+whose key starts with their `host`; each publish deletes up to 8 expired lobbies. A letter is
+`/lucent/letters/<game>/<mailbox>/<uid>-<32 random hex>` with `letter` and `expires_at`: written
+once and only by that user, readable by any signed-in player, expiry capped at 240 s ahead, and up
+to 8 expired ones deleted by each post to the mailbox. Firebase's rules cannot count, so the rate
+cap is the host's own. `FirebaseProject`
 names the Web API key and database URL, or the Local Emulator Suite's auth URL and namespace.
 
 ## ZeroTier
@@ -161,7 +205,9 @@ addresses. ZeroTier (id 1): 40-bit node id, port.
 - A router mapping is asked for 120 s and renewed at half its lease; more than 600 s, or a permanent
   one, is refused.
 - A relay's events count only when their id hashes their canonical form and their signature checks
-  out; a lobby past its expiry or without an invite is never listed.
+  out; a lobby past its expiry or without a contact is never listed.
+- No listing holds an invite or an address; a letter opens only for its two keys and purpose, and
+  a host hears each asker's key once.
 - A TLS stream verifies the peer's chain and the dialled name (SNI and host check) before it carries
   a byte; the roots are OpenSSL's default paths on Linux, the CA folders on Android, the Keychain's
   anchors on macOS and the ROOT store on Windows, plus any PEM the caller adds.
@@ -176,9 +222,21 @@ from a pasted invite, and a TLS stream reaches a loopback server whose certifica
 for one name while another name or an untrusted root is refused. Nostr events sign and read
 back, a relay stand-in refuses one and answers a query with a forged event among real ones, and a
 `NostrDirectory` over two stand-ins and a dead relay lists a lobby once and drops withdrawn, lapsed,
-forged and other games' ones. A `LobbyBoard` on a loopback server with a stepped clock lists,
-withdraws (only for its host) and lapses lobbies for two `HttpDirectory`s and refuses malformed
-requests. Live, `lucent_lobby_server` on this machine's LAN address serves a host and a friend
+forged and other games' ones, and keeps letters to their mailbox, dropping an oversized one. A
+`LobbyBoard` on a loopback server with a stepped clock lists, withdraws (only for its host) and
+lapses lobbies for two `HttpDirectory`s, keeps letters to their mailbox, lapses and rate-caps them,
+and refuses malformed requests. `lucent_p2p_letter_tests` opens letters only for their recipient
+and purpose; `lucent_p2p_crypto_tests` runs the RFC 7748 §6.1 X25519, RFC 8439 §2.8.2
+ChaCha20-Poly1305 and RFC 5869 HKDF vectors. `lucent_p2p_lobby_seats_tests` seats players through a
+loopback board: the invite reaches the asker alone, each key is heard once, the ninth ask in a
+minute waits, "full" arrives, and an impostor's answer is not taken. The Firebase test runs the
+same against the Local Emulator Suite with `firebase_rules_json()` (2026-11-12).
+`lucent_p2p_nostr_relay_tests` runs the lab relay on loopback: it takes an event signed by
+rust-nostr and refuses forged, re-signed, expired and oversized ones, replaces an addressable
+event, and a Nostr directory lists, withdraws and seats a player through it.
+`lucent_p2p_nostr_tests` checks that same foreign event's id and signature, and
+`lucent_p2p_schnorr_tests` runs BIP-340's own vectors. Open: lobbies and letters on a live public
+relay since the contact change; the live run of 2026-11-11 below predates it. Live, `lucent_lobby_server` on this machine's LAN address serves a host and a friend
 (2026-11-11). Live, on the default relays: publish reaches all five in about 1.5 s
 and a second key lists the lobby with its fields, then none after withdraw (2026-11-11). `lucent_p2p_zerotier_tests` (Linux) runs in its own network namespace with a
 dummy interface: a lab root, a host, a friend and a stranger, one process each. Host and friend

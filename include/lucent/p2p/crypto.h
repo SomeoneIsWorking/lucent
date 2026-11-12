@@ -55,10 +55,13 @@ std::optional<Bytes> schnorr_sign(std::span<const std::uint8_t> secret,
 bool schnorr_verify(std::span<const std::uint8_t> public_key, std::span<const std::uint8_t> message,
                     std::span<const std::uint8_t> signature);
 
-// An ephemeral X25519 key pair.
+// An X25519 key pair.
 class KeyPair {
 public:
+  // A fresh one from the system's generator.
   KeyPair();
+  // The pair of a 32-byte secret, which is wiped; throws std::invalid_argument for another size.
+  explicit KeyPair(Bytes secret);
   ~KeyPair();
   KeyPair(const KeyPair &) = delete;
   KeyPair &operator=(const KeyPair &) = delete;

@@ -56,8 +56,10 @@ public:
   // Sends the event and waits for the relay's OK; false with the relay's reason when refused.
   bool publish(const Event &event, std::string &error);
   // The stored events matching `filter` (a NIP-01 filter object as JSON), up to EOSE. Events
-  // whose id or signature do not check out are left out.
-  std::optional<std::vector<Event>> query(std::string_view filter, std::string &error);
+  // with content longer than `max_content`, or whose id or signature do not check out, are left
+  // out; the length is checked first.
+  std::optional<std::vector<Event>> query(std::string_view filter, std::size_t max_content,
+                                          std::string &error);
 
 private:
   explicit Relay(std::unique_ptr<http::WebSocketClient> socket) noexcept;
