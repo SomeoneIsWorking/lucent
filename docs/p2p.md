@@ -239,8 +239,10 @@ event, and a Nostr directory lists, withdraws and seats a player through it.
 relay since the contact change; the live run of 2026-11-11 below predates it. Live, `lucent_lobby_server` on this machine's LAN address serves a host and a friend
 (2026-11-11). Live, on the default relays: publish reaches all five in about 1.5 s
 and a second key lists the lobby with its fields, then none after withdraw (2026-11-11). `lucent_p2p_zerotier_tests` (Linux) runs in its own network namespace with a
-dummy interface: a lab root, a host, a friend and a stranger, one process each. Host and friend
-connect by a code over ZeroTier alone and trade a message on the reliable link; the stranger, who
-has the host's node and network but not the secret, gets nowhere. It prints how long each node took
-to reach its network and how long the warm friend took to connect. Across NATs it is proved in openSU's `tools.nat_lab` (rootless namespaces,
+dummy interface: a lab root, then a host, a friend and a stranger, each a `lucent_p2p_zerotier_peer`.
+Host and friend connect by a code over ZeroTier alone and trade a message on the reliable link; the
+stranger, who has the host's node and network but not the secret, gets nowhere. It prints how long
+each node took to reach its network and how long the warm friend took to connect. The peer is
+portable: `--friend-runner wine --friend-peer <peer.exe>` seats a Windows build (llvm-mingw, static
+OpenSSL and libzt) as the friend against Linux host and root processes. Across NATs it is proved in openSU's `tools.nat_lab` (rootless namespaces,
 `nft` NATs, a STUN server and a NAT-PMP/UPnP gateway).

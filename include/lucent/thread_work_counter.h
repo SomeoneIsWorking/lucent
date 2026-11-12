@@ -38,9 +38,11 @@ private:
   bool open_instructions();
   void close_all();
 
+#if defined(__linux__)
   // A hybrid CPU counts each core type on its own PMU; their sum is the thread's.
   static constexpr std::size_t max_pmus = 2;
   std::array<int, max_pmus> fds_{-1, -1};
+#endif
   WorkUnit unit_ = WorkUnit::instructions;
   bool valid_ = false;
 };

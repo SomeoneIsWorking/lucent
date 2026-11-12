@@ -332,14 +332,20 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
           COMMAND lucent_p2p_${_lucent_p2p_test}_tests)
         set_tests_properties(lucent_p2p_${_lucent_p2p_test}_tests PROPERTIES TIMEOUT 60)
       endforeach()
-      if(TARGET lucent_zerotier AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
+      if(TARGET lucent_zerotier)
+        # One player of the ZeroTier test; a Windows build of it can take the friend's seat.
+        add_executable(lucent_p2p_zerotier_peer tests/p2p/zerotier_peer.cpp)
+        target_link_libraries(lucent_p2p_zerotier_peer PRIVATE lucent::zerotier)
+      endif()
+      if(TARGET lucent_zerotier_root AND CMAKE_SYSTEM_NAME STREQUAL "Linux")
         # ZeroTier sends nothing over loopback: a namespace of its own with a dummy interface.
         add_executable(lucent_p2p_zerotier_tests tests/p2p/test_zerotier.cpp)
-        target_link_libraries(lucent_p2p_zerotier_tests PRIVATE lucent::zerotier)
+        add_dependencies(lucent_p2p_zerotier_tests lucent_p2p_zerotier_peer)
         add_test(NAME lucent_p2p_zerotier_tests
           COMMAND unshare --map-root-user --net sh -c
             "ip link set lo up && ip link add lab0 type dummy && ip addr add 10.77.0.1/24 dev lab0 && ip link set lab0 up && exec \"$0\" \"$@\""
-            $<TARGET_FILE:lucent_p2p_zerotier_tests> --root $<TARGET_FILE:lucent_zerotier_root>)
+            $<TARGET_FILE:lucent_p2p_zerotier_tests> --root $<TARGET_FILE:lucent_zerotier_root>
+            --peer $<TARGET_FILE:lucent_p2p_zerotier_peer>)
         set_tests_properties(lucent_p2p_zerotier_tests PROPERTIES TIMEOUT 180)
       endif()
     endif()
