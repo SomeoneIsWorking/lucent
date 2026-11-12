@@ -10,6 +10,10 @@
 #include <string_view>
 #include <vector>
 
+namespace lucent::net {
+class ByteStream;
+}
+
 namespace lucent::http {
 
 namespace detail {
@@ -41,6 +45,9 @@ struct Response {
   std::string file_path;
   // Sent after the fixed headers; a name or value holding CR or LF turns the reply into a 500.
   std::vector<Header> headers;
+  // Set by `websocket_upgrade`: only the status line and `headers` are sent, then this runs on
+  // the connection's thread with the connection, which closes when it returns.
+  std::function<void(net::ByteStream &)> takeover;
 
   static Response text(int status, std::string reason, std::string body);
   static Response json(int status, std::string reason, std::string body);

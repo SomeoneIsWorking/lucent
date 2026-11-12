@@ -1,5 +1,7 @@
 #include "lucent/http.h"
 
+#include "lucent/byte_stream.h"
+
 #include "http_socket.h"
 #include "lucent/log.h"
 #include "lucent/text.h"
@@ -68,6 +70,15 @@ bool send_response(detail::Socket socket, const Response &response) {
     if (!file) {
       return false;
     }
+  }
+  if (response.takeover) {
+    std::string head =
+        "HTTP/1.1 " + std::to_string(response.status) + " " + response.reason + "\r\n";
+    for (const Header &extra : response.headers) {
+      head += extra.name + ": " + extra.value + "\r\n";
+    }
+    head += "\r\n";
+    return send_all(socket, head.data(), head.size());
   }
   std::string header = "HTTP/1.1 " + std::to_string(response.status) + " " + response.reason +
                        "\r\nContent-Type: " + response.content_type +
@@ -313,8 +324,12 @@ void serve_client(const std::shared_ptr<detail::ServerState> &state, detail::Soc
 
 #if LUCENT_EXCEPTIONS
   try {
-    if (!send_response(client, checked(state->handler(request)))) {
+    const Response response = checked(state->handler(request));
+    if (!send_response(client, response)) {
       lucent::log(Level::Warn, "http", "response could not be sent");
+    } else if (response.takeover) {
+      const std::unique_ptr<net::TcpStream> stream = net::TcpStream::borrow(client);
+      response.takeover(*stream);
     }
   } catch (const std::exception &exception) {
     lucent::log(Level::Error, "http", std::string{"request handler threw: "} + exception.what());
@@ -324,7 +339,11 @@ void serve_client(const std::shared_ptr<detail::ServerState> &state, detail::Soc
     send_response(client, error_response(500, "Internal Server Error", "request handler failed"));
   }
 #else
-  send_response(client, checked(state->handler(request)));
+  const Response response = checked(state->handler(request));
+  if (send_response(client, response) && response.takeover) {
+    const std::unique_ptr<net::TcpStream> stream = net::TcpStream::borrow(client);
+    response.takeover(*stream);
+  }
 #endif
   finish_client(state, client);
 }
@@ -412,16 +431,16 @@ std::string_view Request::query() const noexcept {
 }
 
 Response Response::text(int status, std::string reason, std::string body) {
-  return {status, std::move(reason), "text/plain; charset=utf-8", std::move(body), {}, {}};
+  return {status, std::move(reason), "text/plain; charset=utf-8", std::move(body), {}, {}, {}};
 }
 
 Response Response::json(int status, std::string reason, std::string body) {
-  return {status, std::move(reason), "application/json", std::move(body), {}, {}};
+  return {status, std::move(reason), "application/json", std::move(body), {}, {}, {}};
 }
 
 Response Response::binary(int status, std::string reason, std::string content_type,
                           std::string body) {
-  return {status, std::move(reason), std::move(content_type), std::move(body), {}, {}};
+  return {status, std::move(reason), std::move(content_type), std::move(body), {}, {}, {}};
 }
 
 Response Response::file(int status, std::string reason, std::string content_type,

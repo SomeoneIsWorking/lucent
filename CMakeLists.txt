@@ -24,6 +24,7 @@ add_library(lucent STATIC
   src/http.cpp
   src/byte_stream.cpp
   src/http_client.cpp
+  src/websocket.cpp
   src/ipv4.cpp
   src/json.cpp
   src/log.cpp

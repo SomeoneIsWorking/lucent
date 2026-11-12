@@ -10,6 +10,7 @@
 #include <string>
 #include <string_view>
 
+#include "lucent/websocket.h"
 #include "lucent/byte_stream.h"
 #include "lucent/ipv4.h"
 
@@ -51,13 +52,10 @@ bool get_loopback(std::uint16_t port, std::string_view target, FetchResult &resu
 bool post_loopback(std::uint16_t port, std::string_view target, std::string_view body,
                    FetchResult &result, std::string &error);
 
-// The Sec-WebSocket-Accept value a server answers `key` with (RFC 6455 section 4.2.2).
-std::string websocket_accept(std::string_view key);
-
 // One client WebSocket. Text messages only; pings are answered while receiving.
 class WebSocketClient {
 public:
-  static constexpr std::size_t kMaxMessageBytes = std::size_t{16} * 1024 * 1024;
+  static constexpr std::size_t kMaxMessageBytes = WebSocket::kMaxMessageBytes;
 
   WebSocketClient() = default;
   ~WebSocketClient();
@@ -80,13 +78,8 @@ public:
   bool connected() const noexcept;
 
 private:
-  bool send_frame(std::uint8_t opcode, std::string_view payload, std::string &error);
-  bool read_exact(char *bytes, std::size_t size, std::string &error);
-  bool fail(std::string &error, std::string reason);
-
   std::unique_ptr<net::ByteStream> stream_;
-  // Bytes read past the handshake's header block.
-  std::string pending_;
+  std::optional<WebSocket> socket_;
 };
 
 } // namespace lucent::http

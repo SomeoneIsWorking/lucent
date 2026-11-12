@@ -18,7 +18,7 @@ std::unique_ptr<TcpStream> TcpStream::connect(const Endpoint &server, std::strin
     error = "cannot create a socket";
     return nullptr;
   }
-  std::unique_ptr<TcpStream> stream{new TcpStream{socket}};
+  std::unique_ptr<TcpStream> stream{new TcpStream{socket, true}};
   detail::set_close_on_exec(socket);
   detail::set_socket_timeouts(socket);
   sockaddr_in address{};
@@ -33,8 +33,27 @@ std::unique_ptr<TcpStream> TcpStream::connect(const Endpoint &server, std::strin
   return stream;
 }
 
+std::unique_ptr<TcpStream> TcpStream::borrow(std::uintptr_t socket) {
+  return std::unique_ptr<TcpStream>{new TcpStream{socket, false}};
+}
+
 TcpStream::~TcpStream() {
-  detail::close_socket(socket_);
+  if (owned_) {
+    detail::close_socket(socket_);
+  }
+}
+
+std::string describe(ReadOutcome outcome, std::string_view closed) {
+  switch (outcome) {
+  case ReadOutcome::Closed:
+    return std::string{closed};
+  case ReadOutcome::TimedOut:
+    return "timed out";
+  case ReadOutcome::Data:
+  case ReadOutcome::Failed:
+    break;
+  }
+  return "receive failed";
 }
 
 std::uintptr_t TcpStream::native() const noexcept {

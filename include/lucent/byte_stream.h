@@ -13,6 +13,9 @@ namespace lucent::net {
 
 enum class ReadOutcome : std::uint8_t { Data, Closed, TimedOut, Failed };
 
+// Why a read gave no data, in words; `closed` names a close.
+std::string describe(ReadOutcome outcome, std::string_view closed);
+
 class ByteStream {
 public:
   ByteStream() = default;
@@ -42,12 +45,15 @@ public:
   ReadOutcome read_some(std::string &buffer) override;
   // The OS socket, for a layer such as TLS that runs over it.
   std::uintptr_t native() const noexcept;
+  // A stream over a connected socket someone else owns and closes, such as a server's.
+  static std::unique_ptr<TcpStream> borrow(std::uintptr_t socket);
 
 private:
-  explicit TcpStream(std::uintptr_t socket) noexcept : socket_{socket} {
+  TcpStream(std::uintptr_t socket, bool owned) noexcept : socket_{socket}, owned_{owned} {
   }
 
   std::uintptr_t socket_;
+  bool owned_;
 };
 
 } // namespace lucent::net
