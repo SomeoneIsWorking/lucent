@@ -168,8 +168,8 @@ void apply_pending_locked(State &st, VarBase &var) {
 } // namespace
 
 // ── VarBase ───────────────────────────────────────────────────────────────────
-VarBase::VarBase(std::string name, Options options)
-    : name_(std::move(name)), options_(std::move(options)) {
+VarBase::VarBase(std::string_view name, Options options) noexcept
+    : name_(name), persistence_(options.persistence), env_override_(options.env_name) {
 }
 VarBase::~VarBase() = default;
 
@@ -210,8 +210,7 @@ void register_var(VarBase &var) {
     std::abort();
   }
   var.registered_ = true;
-  var.env_name_ = var.options_.env_name.empty() ? derived_env_name_locked(st, var.name())
-                                                : var.options_.env_name;
+  var.env_name_ = var.env_override_.empty() ? derived_env_name_locked(st, var.name()) : var.env_override_;
   apply_pending_locked(st, var);
 }
 

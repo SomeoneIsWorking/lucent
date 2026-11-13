@@ -36,7 +36,7 @@ enum class Persistence : unsigned char {
 struct Options {
   Persistence persistence = Persistence::Saved;
   // Environment variable read verbatim instead of the prefixed, upper-cased name.
-  std::string env_name;
+  std::string_view env_name;
 };
 
 // Non-template base so the registry and the loaders can hold every CVar.
@@ -50,7 +50,7 @@ public:
     return name_;
   }
   [[nodiscard]] bool persistable() const noexcept {
-    return options_.persistence == Persistence::Saved;
+    return persistence_ == Persistence::Saved;
   }
   [[nodiscard]] bool registered() const noexcept {
     return registered_;
@@ -77,10 +77,12 @@ public:
   [[nodiscard]] virtual const std::string &effective_string() const = 0;
 
 protected:
-  VarBase(std::string name, Options options);
+  // Static CVars are built before main, where an allocation failure can only terminate.
+  VarBase(std::string_view name, Options options) noexcept;
 
   std::string name_;
-  Options options_;
+  Persistence persistence_;
+  std::string env_override_;
   std::string env_name_;
   std::array<bool, kLayerCount> present_{true, false, false, false};
   bool registered_ = false;
@@ -102,9 +104,10 @@ std::string format(const std::string &value);
 
 template <class T> class Var final : public VarBase {
 public:
-  explicit Var(std::string name, T default_value = T{}, Options options = {})
-      : VarBase(std::move(name), std::move(options)) {
-    slots_[0] = std::move(default_value);
+  template <class D = T>
+  explicit Var(std::string_view name, const D &default_value = D{}, Options options = {}) noexcept
+      : VarBase(name, options) {
+    slots_[0] = T(default_value);
   }
 
   [[nodiscard]] const T &get() const noexcept {
