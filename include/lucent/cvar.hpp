@@ -87,7 +87,7 @@ protected:
   std::array<bool, kLayerCount> present_{true, false, false, false};
   bool registered_ = false;
 
-  friend void register_var(VarBase &);
+  friend void register_var(VarBase &) noexcept;
   friend void unregister_var(VarBase &);
 };
 
@@ -160,7 +160,7 @@ void set_prefix(std::string_view prefix);
 
 // Make the registry aware of a CVar and apply, in order, a stashed file value, the environment and
 // a stashed set_arg(). An environment value that does not parse is logged and ignored.
-void register_var(VarBase &var);
+void register_var(VarBase &var) noexcept;
 
 // Detach a CVar. A persistable value is kept, so save_file() still writes it and a later
 // register_var() restores it.

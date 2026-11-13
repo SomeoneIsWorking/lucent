@@ -201,7 +201,7 @@ std::string_view prefix() {
   return st.prefix;
 }
 
-void register_var(VarBase &var) {
+void register_var(VarBase &var) noexcept {
   State &st = state();
   std::lock_guard lock(st.mutex);
   auto [it, inserted] = st.registered.emplace(var.name(), &var);
