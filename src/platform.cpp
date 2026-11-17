@@ -26,7 +26,6 @@ namespace {
 std::mutex override_mutex;
 std::filesystem::path app_private_directory;
 
-#if !defined(__ANDROID__)
 bool valid_application_name(std::string_view name) {
   if (name.empty() || name == "." || name == "..") {
     return false;
@@ -51,7 +50,6 @@ std::optional<std::filesystem::path> child_directory(std::string_view base, std:
   }
   return root / std::filesystem::path{name};
 }
-#endif
 
 std::string environment_value(const char *name) {
 #ifdef _WIN32
@@ -197,7 +195,7 @@ std::optional<std::filesystem::path> user_data_directory(std::string_view applic
   {
     std::lock_guard lock{override_mutex};
     if (!app_private_directory.empty()) {
-      return app_private_directory;
+      return child_directory(app_private_directory.string(), application_name);
     }
   }
   std::string home = environment_value("HOME");

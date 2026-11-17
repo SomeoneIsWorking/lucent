@@ -47,11 +47,12 @@ std::optional<std::filesystem::path> resolve_state_directory(std::string_view ap
 std::optional<std::filesystem::path> resolve_runtime_directory(std::string_view application_name,
                                                                Environment environment);
 
-// Resolve using the current host environment, or the app-private root supplied by an Android
+// Resolve using the current host environment, or under the app-private root supplied by an Android
 // Activity through set_user_data_directory(). The application name is one path component.
 std::optional<std::filesystem::path> user_data_directory(std::string_view application_name);
 
-// Set an exact app-private directory supplied by a platform shell. An empty path clears it.
+// Set the app-private root a platform shell supplies; each application name is a directory in it, so
+// several titles of one process keep their files apart. An empty path clears it.
 // Non-empty paths must be absolute and are rejected without changing the current override.
 bool set_user_data_directory(std::filesystem::path directory);
 

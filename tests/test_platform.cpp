@@ -93,7 +93,8 @@ int main() {
 
     lucent::platform::set_user_data_directory(root / "private");
     auto override_path = lucent::platform::user_data_directory("any-app");
-    assert(override_path && *override_path == root / "private");
+    assert(override_path && *override_path == root / "private" / "any-app");
+    assert(!lucent::platform::user_data_directory("../escape"));
     assert(!lucent::platform::set_user_data_directory("relative"));
     assert(lucent::platform::set_user_data_directory({}));
 
