@@ -172,7 +172,11 @@ template <class... Args> std::string message(FormatString<Args...> fmt, Args &&.
   try {
     return detail::format(fmt, std::forward<Args>(args)...);
   } catch (const std::exception &failure) { // format_error, or a locale facet's bad_cast
-    return std::string("format failed (") + failure.what() + "): " + std::string(fmt.get());
+    // fmt's format string views as fmt::string_view, which std::string cannot be built from
+    // directly.
+    const auto text = fmt.get();
+    return std::string("format failed (") + failure.what() +
+           "): " + std::string(text.data(), text.size());
   }
 }
 } // namespace detail
