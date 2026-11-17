@@ -30,6 +30,7 @@ add_library(lucent STATIC
   src/log.cpp
   src/log_c.cpp
   src/network_interfaces.cpp
+  src/operation_meter.cpp
   src/platform.cpp
   src/rollback/session.cpp
   src/rotation.cpp

@@ -1,4 +1,5 @@
 #include <lucent/count_histogram.h>
+#include <lucent/operation_meter.h>
 #include <lucent/thread_work_counter.h>
 #include <lucent/work_clock.h>
 #include "test_environment.h"
@@ -109,11 +110,56 @@ int clock_failures() {
   return 0;
 }
 
+// Nested operations: the outer's self excludes the inner's work, its inclusive holds both, and an
+// uncounted frame's calls are dropped.
+int operation_failures() {
+  lucent::perf::WorkClock clock;
+  lucent::perf::OperationMeter meter(clock);
+  const auto outer = meter.operation("outer");
+  const auto inner = meter.operation("inner");
+  {
+    const lucent::perf::OperationMeter::Scope off(meter, outer);
+    spin(1000);
+  }
+  meter.end_frame();
+  clock.start();
+  for (int frame = 0; frame < 4; ++frame) {
+    {
+      const lucent::perf::OperationMeter::Scope scope(meter, outer);
+      spin(1'000'000);
+      for (int call = 0; call < 2; ++call) {
+        const lucent::perf::OperationMeter::Scope nested(meter, inner);
+        spin(3'000'000);
+      }
+    }
+    meter.end_frame(frame != 0);
+  }
+  clock.stop();
+  const auto o = meter.totals(outer);
+  const auto i = meter.totals(inner);
+  int failures = 0;
+  if (o.calls != 3 || i.calls != 6) {
+    std::cerr << "operation calls " << o.calls << " and " << i.calls << ", not 3 and 6\n";
+    ++failures;
+  }
+  if (i.self < 5 * o.self || i.self > 7 * o.self) {
+    std::cerr << "inner self " << i.self << " is not six outer selves " << o.self << "\n";
+    ++failures;
+  }
+  if (o.inclusive != o.self + i.inclusive) {
+    std::cerr << "outer inclusive " << o.inclusive << " is not its self plus inner's\n";
+    ++failures;
+  }
+  meter.report();
+  return failures;
+}
+
 } // namespace
 
 int main() {
   return lucent::test::run_main([] {
-    const int failures = histogram_failures() + counter_failures() + clock_failures();
+    const int failures =
+        histogram_failures() + counter_failures() + clock_failures() + operation_failures();
     if (failures == 0) {
       std::cout << "perf tests passed\n";
     }

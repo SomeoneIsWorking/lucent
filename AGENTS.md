@@ -10,10 +10,11 @@ is dependency-free; optional `lucent::zip` adds zlib-backed archive extraction a
   globals and register them; C code reads them through `cvar_c.h`. Persistence policy (which file,
   where) stays with the consumer.
 - `log` owns all process diagnostics and sinks.
-- `perf` (`thread_work_counter`, `work_clock`, `count_histogram`) owns load-independent cost
-  units: a thread's user-space instructions retired (thread CPU time where no counter opens), their
-  sum across threads that hand off, and constant-memory count percentiles. Consumers own phases,
-  report lines and what they meter; the method is re-harness's `perf-units` skill.
+- `perf` (`thread_work_counter`, `work_clock`, `count_histogram`, `operation_meter`) owns
+  load-independent cost units: a thread's user-space instructions retired (thread CPU time where no
+  counter opens), their sum across threads that hand off, constant-memory count percentiles, and
+  named per-operation scopes with their run-end lines. Consumers own phases, which operations they
+  name, and their other report lines; the method is re-harness's `perf-units` skill.
 - `http` owns bounded loopback transport, request parsing, response framing, and server lifecycle.
   Consumers own routes and domain behavior; game input, renderer probes, and application state do
   not belong in Lucent.
