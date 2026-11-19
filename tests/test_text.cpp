@@ -1,6 +1,7 @@
 #include <lucent/text.h>
 #include "test_environment.h"
 
+#include <filesystem>
 #include <iostream>
 #include <string>
 #include <system_error>
@@ -30,6 +31,10 @@ int main() {
         lucent::text::counted(2, "custom setting") != "2 custom settings" ||
         lucent::text::counted(3, "Steam shortcut", "Steam shortcuts") != "3 Steam shortcuts") {
       std::cerr << "counted named the wrong number of things\n";
+      ++failures;
+    }
+    if (lucent::text::utf8(std::filesystem::path(u8"D\u00fcmps/Zelda 3D.cci")) != "D\xC3\xBCmps/Zelda 3D.cci") {
+      std::cerr << "utf8 changed a path's bytes\n";
       ++failures;
     }
     const std::string percent = "42.5% done";

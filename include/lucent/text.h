@@ -3,6 +3,7 @@
 #include <charconv>
 #include <cstddef>
 #include <cstdint>
+#include <filesystem>
 #include <optional>
 #include <span>
 #include <string>
@@ -40,6 +41,13 @@ inline bool ascii_iequals(std::string_view left, std::string_view right) noexcep
     }
   }
   return true;
+}
+
+// `path` as UTF-8 bytes, the form SDL and other C APIs take on every platform (Windows'
+// path::string() is the ANSI code page's, and its c_str() is wide).
+inline std::string utf8(const std::filesystem::path &path) {
+  const std::u8string bytes = path.u8string();
+  return {bytes.begin(), bytes.end()};
 }
 
 // Strip leading and trailing whitespace (std::isspace in the C locale).
