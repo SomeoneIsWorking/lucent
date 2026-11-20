@@ -27,6 +27,7 @@ add_library(lucent STATIC
   src/websocket.cpp
   src/ipv4.cpp
   src/json.cpp
+  src/line_socket.cpp
   src/log.cpp
   src/log_c.cpp
   src/network_interfaces.cpp
@@ -284,6 +285,12 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     add_executable(lucent_text_tests tests/test_text.cpp)
     target_link_libraries(lucent_text_tests PRIVATE lucent)
     add_test(NAME lucent_text_tests COMMAND lucent_text_tests)
+
+    if(NOT WIN32)
+      add_executable(lucent_line_socket_tests tests/test_line_socket.cpp)
+      target_link_libraries(lucent_line_socket_tests PRIVATE lucent)
+      add_test(NAME lucent_line_socket_tests COMMAND lucent_line_socket_tests)
+    endif()
 
     add_executable(lucent_platform_tests tests/test_platform.cpp)
     target_link_libraries(lucent_platform_tests PRIVATE lucent)

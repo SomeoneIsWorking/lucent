@@ -18,6 +18,9 @@ is dependency-free; optional `lucent::zip` adds zlib-backed archive extraction a
 - `http` owns bounded loopback transport, request parsing, response framing, and server lifecycle.
   Consumers own routes and domain behavior; game input, renderer probes, and application state do
   not belong in Lucent.
+- `line_socket` owns a local Unix-socket channel of newline-delimited messages (JSON lines): its
+  0600 file, framing, line/peer/backlog bounds and non-blocking polling from the owner's loop.
+  Consumers own what the lines say.
 - `network_interfaces` owns host IPv4 interface enumeration (address, netmask, broadcast,
   flags), the default gateway, and the rule for which broadcast addresses reach every LAN.
   `udp_socket` and `ipv4` own the IPv4 UDP socket and address type.
