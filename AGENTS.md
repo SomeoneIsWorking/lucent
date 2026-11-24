@@ -38,6 +38,9 @@ is dependency-free; optional `lucent::zip` adds zlib-backed archive extraction a
   creation. Its Android consumer provides the app-private root through the C ABI; the separate shared android-port framework owns persisted SAF
   read grants plus bounded private staging and promotion; consumers own setup wording, install
   validation, archive policy, and the decision to promote after validation.
+- `bug_report` owns one bug report as a folder: its content, `report.json` and `README.md`, and the
+  draft's lifecycle. Consumers own the hotkey, freezing, what they capture, the form and where
+  reports live.
 - `content` owns dependency-free streaming content digests. Consumers own the expected identity and
   complete-install policy.
 - `file_dialog` owns one asynchronous Linux native file selection and its cancellation lifetime.

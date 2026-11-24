@@ -22,6 +22,7 @@ add_library(lucent STATIC
   src/count_histogram.cpp
   src/cvar.cpp
   src/http.cpp
+  src/bug_report.cpp
   src/byte_stream.cpp
   src/http_client.cpp
   src/websocket.cpp
@@ -239,6 +240,10 @@ if(CMAKE_SOURCE_DIR STREQUAL CMAKE_CURRENT_SOURCE_DIR)
     # The Channel tests spawn threads to prove a handle tracks the enabled set under concurrency.
     target_link_libraries(lucent_tests PRIVATE lucent Threads::Threads)
     add_test(NAME lucent_tests COMMAND lucent_tests)
+
+    add_executable(lucent_bug_report_tests tests/test_bug_report.cpp)
+    target_link_libraries(lucent_bug_report_tests PRIVATE lucent)
+    add_test(NAME lucent_bug_report_tests COMMAND lucent_bug_report_tests)
 
     add_executable(lucent_http_tests tests/test_http.cpp)
     target_link_libraries(lucent_http_tests PRIVATE lucent Threads::Threads)
